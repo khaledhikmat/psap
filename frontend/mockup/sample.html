@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="author" content="Emil Kokesh">
+<title>PSAP 2.0 Secure Room / Area Assessment Portal (Prototype)</title>
+<style>
+:root{
+  --navy:#142d4b; --navy2:#214464; --ink:#1e2630; --muted:#556982; --title:#132b49;
+  --teal:#00a1b7; --blue:#2379b1; --line:#c3d2de; --pale:#f7fafd; --bg:#fbfdff;
+  --green:#236e46; --green-bg:#ebf8f1; --green-ln:#bedcc4;
+  --amber:#8a5a00; --amber-bg:#fff6e5; --amber-ln:#f0b35d;
+  --red:#8a2a2a; --red-bg:#ffebeb; --red-ln:#e8b4b4;
+  --sky-bg:#eaf4ff; --sky-ln:#b7d3ee; --sky:#1e6bb8;
+  --t1:#b3392f; --t2:#c98a14; --t3:#2379b1; --t4:#2f9a5f;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI","Helvetica Neue",Arial,sans-serif;min-height:100vh;display:flex;flex-direction:column}
+button{font:inherit;cursor:pointer}
+a{color:var(--blue)}
+.top{background:var(--navy);border-bottom:5px solid var(--teal);position:sticky;top:0;z-index:20}
+.top-in{max-width:1240px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.brand{color:#fff;font-weight:700;font-size:18px;letter-spacing:.2px;margin-right:6px}
+.brand small{display:block;font-weight:400;font-size:11px;color:#b9c9da;letter-spacing:.3px}
+nav{display:flex;gap:6px;flex-wrap:wrap}
+nav button{background:var(--navy2);color:#fff;border:0;border-radius:8px;padding:7px 14px;font-size:14px;font-weight:600}
+nav button:hover{background:#2b567d}
+nav button[aria-current="page"]{background:var(--blue)}
+nav button:focus-visible,.btn:focus-visible,.opt:focus-within,.step:focus-visible,th.sortable:focus-visible{outline:3px solid #ffd27a;outline-offset:2px}
+.banner{background:var(--amber-bg);border-bottom:1px solid var(--amber-ln);color:var(--amber);font-size:13px;text-align:center;padding:5px 12px}
+main{flex:1;width:100%;max-width:1240px;margin:0 auto;padding:28px 24px 40px}
+.view{display:none}
+.view.on{display:block;animation:fade .18s ease}
+@keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.view.on{animation:none}html{scroll-behavior:auto}}
+h1{font-size:34px;line-height:1.15;color:var(--title);margin:0 0 8px}
+h2{font-size:24px;color:var(--title);margin:0 0 6px}
+h3{font-size:17px;color:var(--title);margin:0 0 6px}
+.lead{font-size:18px;color:var(--muted);max-width:860px;margin:0 0 22px}
+.sub{color:var(--muted);margin:0 0 18px;max-width:900px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:980px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.g2,.g3,.g4{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.card.green{background:var(--green-bg);border-color:var(--green-ln)}
+.card.amber{background:var(--amber-bg);border-color:var(--amber-ln)}
+.card.sky{background:var(--sky-bg);border-color:var(--sky-ln)}
+.card.red{background:var(--red-bg);border-color:var(--red-ln)}
+.card.pale{background:var(--pale)}
+.tag{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:3px 10px;border:1px solid var(--amber-ln);background:var(--amber-bg);color:var(--amber);vertical-align:middle}
+.tag.note{border-color:var(--sky-ln);background:var(--sky-bg);color:var(--sky)}
+.tag.ok{border-color:var(--green-ln);background:var(--green-bg);color:var(--green)}
+.btn{display:inline-block;border:0;border-radius:10px;padding:11px 20px;font-weight:700;color:#fff;background:var(--blue);font-size:15px;text-decoration:none}
+.btn.teal{background:#0b8f6a}.btn.navy{background:var(--navy)}.btn.ghost{background:#fff;color:var(--navy);border:1px solid var(--line)}
+.btn:hover{filter:brightness(1.08)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.hero{display:grid;grid-template-columns:1.15fr .85fr;gap:28px;align-items:center;margin-bottom:26px}
+@media(max-width:900px){.hero{grid-template-columns:1fr}}
+.rule{background:#fff;border:1px solid var(--line);border-left:6px solid var(--teal);border-radius:12px;padding:16px 20px}
+.rule b{color:var(--title)}
+.badge{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--teal);color:#fff;font-weight:700;font-size:14px;flex:none}
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+@media(max-width:1000px){.flow{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.flow{grid-template-columns:1fr}}
+.flow .card{padding:14px 14px 16px}
+.flow .who{font-size:12px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.flow p{margin:6px 0 0;font-size:14px;color:var(--ink)}
+/* wizard */
+.wiz{display:grid;grid-template-columns:190px 1fr 340px;gap:22px;align-items:start}
+@media(max-width:1100px){.wiz{grid-template-columns:1fr}.steps{flex-direction:row!important;flex-wrap:wrap}}
+.steps{display:flex;flex-direction:column;gap:6px;position:sticky;top:96px}
+.steps h4{margin:0 0 6px;color:var(--title);font-size:14px;text-transform:uppercase;letter-spacing:.6px}
+.step{display:flex;align-items:center;gap:10px;background:none;border:0;text-align:left;padding:6px 8px;border-radius:8px;color:var(--muted);font-size:14px}
+.step:hover{background:#eef4fa}
+.step .dot{width:14px;height:14px;border-radius:50%;background:#d3dde8;flex:none;border:2px solid #d3dde8}
+.step.done .dot{background:#13a66b;border-color:#13a66b}
+.step.cur{color:var(--title);font-weight:700;background:#e5f0fa}
+.step.cur .dot{background:#fff;border-color:var(--blue)}
+.qhead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:4px}
+.qnum{font-size:13px;color:var(--muted);font-weight:600}
+.qtext{font-size:18px;margin:6px 0 16px;color:var(--ink)}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{display:flex;gap:12px;align-items:flex-start;background:#fff;border:1.5px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer}
+.opt:hover{border-color:var(--blue);background:#f4f9fe}
+.opt input{margin-top:4px;accent-color:var(--blue);width:18px;height:18px;flex:none}
+.opt.sel{border-color:var(--blue);background:#eaf4ff}
+.opt .pts{margin-left:auto;font-size:12px;font-weight:700;color:var(--muted);background:#eef3f8;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.field{display:flex;flex-direction:column;gap:4px;margin:12px 0 0}
+.field label{font-size:13px;font-weight:700;color:var(--title)}
+.field input,.field textarea{font:inherit;border:1.5px solid var(--line);border-radius:10px;padding:9px 12px;background:#fff;color:var(--ink)}
+.field input:focus,.field textarea:focus{outline:3px solid #cfe5f8;border-color:var(--blue)}
+.ff{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:700px){.ff{grid-template-columns:1fr}}
+.nav-row{display:flex;justify-content:space-between;gap:12px;margin-top:20px;flex-wrap:wrap}
+.side .card{margin-bottom:14px;padding:14px 16px}
+.side h4{margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--title)}
+.side p{margin:0;font-size:14px}
+.side .help{background:#fff7e8;border-color:var(--amber-ln)}
+.warn{color:var(--red);font-size:13px;font-weight:600;margin-top:6px}
+.result{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6px}
+@media(max-width:800px){.result{grid-template-columns:1fr}}
+.big{font-size:46px;font-weight:800;line-height:1;color:var(--title)}
+.pill{display:inline-block;font-weight:800;border-radius:10px;padding:6px 14px;color:#fff;font-size:20px}
+.t1{background:var(--t1)}.t2{background:var(--t2)}.t3{background:var(--t3)}.t4{background:var(--t4)}
+.bar{display:grid;grid-template-columns:58px 1fr 26px;gap:10px;align-items:center;margin:7px 0;font-size:14px}
+.bar .track{background:#edf2f7;border-radius:6px;height:14px;overflow:hidden}
+.bar .fill{height:100%;border-radius:6px}
+.s1,.s2{background:#7fcfa0}.s3{background:#f2c46d}.s4,.s5{background:#ee8f84}
+ul.tight{margin:6px 0 0;padding-left:20px}ul.tight li{margin:3px 0}
+table{border-collapse:collapse;width:100%;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:14.5px}
+th{background:var(--navy);color:#fff;text-align:left;padding:10px 12px;font-size:13.5px}
+td{padding:10px 12px;border-top:1px solid #e3ebf2;vertical-align:top}
+tr:nth-child(even) td{background:var(--pale)}
+.tw{overflow-x:auto;border-radius:12px}
+.heat td.c{text-align:center;font-weight:700;width:64px}
+.heat th.sortable{cursor:pointer;user-select:none}
+.heat th.sortable:hover{background:#2b567d}
+.v1,.v2{background:var(--green-bg)!important}.v3{background:var(--amber-bg)!important}.v4,.v5{background:var(--red-bg)!important}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:10px 0}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:5px;vertical-align:-2px;border:1px solid #cfd8e0}
+footer{background:var(--pale);border-top:1px solid #e0e8f0}
+.foot-in{max-width:1240px;margin:0 auto;padding:12px 24px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.foot-in .fb{background:#fff;border:1px solid var(--line);border-radius:8px;padding:4px 12px;color:var(--navy);font-size:13px}
+.foot-in .fb:hover{background:#eef4fa}
+.foot-in .sp{margin-left:auto}
+#toast{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:50}
+#toast.on{opacity:1}
+.kbd{font-size:12px;color:var(--muted)}
+.small{font-size:13.5px;color:var(--muted)}
+hr.sp{border:0;border-top:1px solid #e3ebf2;margin:22px 0}
+@media print{.top,footer,.banner,.nav-row,#toast{display:none}.view{display:block!important;page-break-after:always}}
+</style>
+</head>
+<body>
+<header class="top"><div class="top-in">
+  <div class="brand">PSAP 2.0<small>Secure Room / Area Assessment Portal</small></div>
+  <nav id="nav" aria-label="Sections"></nav>
+</div></header>
+<div class="banner">Review prototype. Items marked PROPOSED are not approved policy. Scores shown on the Leadership page are illustrative.</div>
+
+<main id="main">
+
+<!-- HOME -->
+<section class="view" id="v-home" aria-labelledby="h-home">
+  <div class="hero">
+    <div>
+      <h1 id="h-home">Protective Security Assessment Program</h1>
+      <p class="lead">One consistent way to decide how important a secure room or area is, how exposed it is, and which protections it must have.</p>
+      <div class="row">
+        <button class="btn" data-go="launch">Business owner / ACO: start LAUNCH</button>
+        <button class="btn teal" data-go="shield">Assessor: start SHIELD</button>
+        <button class="btn ghost" data-go="tiers">View tier logic</button>
+      </div>
+    </div>
+    <div class="card pale">
+      <h3>The rule that holds the model together</h3>
+      <p style="margin:0">The room’s <b>tier</b> comes only from the business answers in LAUNCH. The tier sets a <b>mandatory baseline</b>. SHIELD never lowers a tier or waives a baseline. It tells the technical team which type of control fits, and shows leaders where exposure is highest.</p>
+    </div>
+  </div>
+  <div class="grid g3">
+    <div class="card"><div class="row"><span class="badge">1</span><h3 style="margin:0">LAUNCH</h3></div>
+      <p class="small" style="margin:6px 0 8px">Location, Asset Use, Necessity, Criticality &amp; Hierarchy</p>
+      <p style="margin:0">The person responsible for the room answers eight business questions. After assessor validation, the result is <b>Tier 1–4 or Non-Tier</b>, plus any legal or regulatory requirement.</p></div>
+    <div class="card"><div class="row"><span class="badge" style="background:#0b8f6a">2</span><h3 style="margin:0">SHIELD</h3></div>
+      <p class="small" style="margin:6px 0 8px">Security Hardening &amp; Intrusion Exposure-Level Determination</p>
+      <p style="margin:0">The physical security assessor scores nine observable conditions, each with written anchors and recorded evidence, so two assessors reach the same answer.</p></div>
+    <div class="card"><div class="row"><span class="badge" style="background:var(--navy)">3</span><h3 style="margin:0">Baseline and selection</h3></div>
+      <p class="small" style="margin:6px 0 8px">Tier + requirement → control type</p>
+      <p style="margin:0">The tier and any legal requirement set what must be in place. The technical team (STAT) picks the control type and configuration. Every baseline must be met.</p></div>
+  </div>
+  <hr class="sp">
+  <div class="grid g2">
+    <div class="card green"><h3>For the business owner</h3><p style="margin:0">Answer for the actual room. You are not asked to choose cameras, readers, alarms or barriers. Security validates and confirms the result.</p></div>
+    <div class="card sky"><h3>For leaders</h3><p style="margin:0">The same SHIELD factor data, aggregated within each tier, shows where exposure is highest and where investment will reduce it most.</p></div>
+  </div>
+</section>
+
+<!-- PROCESS -->
+<section class="view" id="v-process" aria-labelledby="h-process">
+  <h2 id="h-process">How the process works</h2>
+  <p class="sub">Business input and security assessment are kept separate. Each step has one owner.</p>
+  <div class="flow" id="flow"></div>
+  <hr class="sp">
+  <div class="grid g2">
+    <div class="card"><h3>Design rules</h3>
+      <ul class="tight">
+        <li>LAUNCH captures business impact. The assessor validates it. LAUNCH does not ask about cameras, readers, alarms or barriers.</li>
+        <li>SHIELD captures observable exposure only. It is not a pass/fail checklist of installed controls.</li>
+        <li>The tier changes only through a formal reassessment of business criticality, never because of SHIELD or installed controls.</li>
+        <li>Confirmed legal or regulatory requirements are added to the baseline as mandatory parameters.</li>
+      </ul></div>
+    <div class="card"><h3>Roles</h3>
+      <table><tbody>
+        <tr><td><b>Business owner / ACO</b></td><td>Requests the assessment, completes LAUNCH, identifies legal and regulatory requirements.</td></tr>
+        <tr><td><b>Physical security assessor</b></td><td>Validates LAUNCH, confirms the tier, completes SHIELD with evidence, verifies baseline compliance.</td></tr>
+        <tr><td><b>STAT</b></td><td>Selects the control type and configuration that satisfies each baseline requirement.</td></tr>
+        <tr><td><b>Governance</b></td><td>Owns thresholds, exceptions and the model version.</td></tr>
+      </tbody></table></div>
+  </div>
+</section>
+
+<!-- LAUNCH -->
+<section class="view" id="v-launch" aria-labelledby="h-launch">
+  <h2 id="h-launch">LAUNCH: business owner / ACO questionnaire</h2>
+  <p class="sub">Answer for the actual room or area. Security will validate your answers and confirm the result. This page runs entirely in your browser and saves nothing.</p>
+  <div class="wiz" id="wiz-launch"></div>
+</section>
+
+<!-- SHIELD -->
+<section class="view" id="v-shield" aria-labelledby="h-shield">
+  <h2 id="h-shield">SHIELD: physical security assessor questionnaire</h2>
+  <p class="sub">Score observable conditions using the written anchors. Record the evidence for every answer. SHIELD never changes the tier or waives the baseline.</p>
+  <div class="wiz" id="wiz-shield"></div>
+</section>
+
+<!-- TIERS -->
+<section class="view" id="v-tiers" aria-labelledby="h-tiers">
+  <h2 id="h-tiers">Tier logic and scoring</h2>
+  <p class="sub">Four fixed tiers, plus Non-Tier. The tier definitions are governing; the score supports consistent assignment.</p>
+  <div class="grid g4" id="tier-cards"></div>
+  <hr class="sp">
+  <h3>LAUNCH weighted score <span class="tag">PROPOSED weights and points</span></h3>
+  <p class="small">Score = Q3 × 0.20 + Q5 × 0.25 + Q6 × 0.20 + Q7 × 0.25 + Q8 × 0.10. Q1, Q2 and Q4 carry no weight. Every question scores 1–5 in the order the answers appear, and higher always means higher business criticality.</p>
+  <div class="card sky" style="margin:10px 0"><h4 style="margin:0 0 6px">Why these weights <span class="tag">PROPOSED working values</span></h4>
+    <p class="small" style="margin:0">No published standard assigns percentages to these questions. Public guidance agrees on one point: consequence of loss comes first. FEMA 452 rates asset value by the impact of losing the asset, with loss of life always highest. IBM calls evaluating consequences “arguably the most important” step in asset criticality analysis. NIST SP 800-34 builds criticality from impact and tolerable downtime together without ranking them. None of them ranks recovery time against redundancy or gives numeric weights, so Q5 and Q7 carry the highest weight and the order of the others is a judgment to be calibrated in the pilot. This is a pattern across named sources, not a statistical study.</p></div>
+  <div class="tw"><table id="map-table"></table></div>
+  <p class="small" style="margin-top:8px">Compare the two-decimal score to the thresholds without rounding up. Q8 “Not applicable” scores 1 only after the assessor confirms nothing requires redundancy.</p>
+  <hr class="sp">
+  <div class="grid g2">
+    <div class="card amber"><h3>Non-Tier test <span class="tag">PROPOSED</span></h3>
+      <p>Tier 4 already covers scores 1.00–1.99, so Non-Tier needs its own test. All three must be true:</p>
+      <ol class="tight"><li>The weighted score is below the governance cutoff (<b>value not yet set</b>).</li><li>Q2 is “No”. A “Yes” or an open “Unknown” blocks Non-Tier.</li><li>The assessor confirms Q3 and Q7 are at their lowest answers.</li></ol>
+      <p style="margin-bottom:0">If any gate fails, the room is Tier 4.</p></div>
+    <div class="card green"><h3>What never changes the tier</h3>
+      <ul class="tight"><li>SHIELD results</li><li>Installed controls, or controls being added or removed</li><li>Exposure bands or heat-map colors</li></ul>
+      <p style="margin:10px 0 0">Confirmed legal or regulatory requirements still apply even when the weighted result is Non-Tier.</p></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>Assessor authority <span class="tag">PROPOSED</span></h3>
+    <p class="small" style="margin:0">A tier is not final until the Physical Security Assessor confirms the LAUNCH responses. The assessor may correct a response the evidence does not support, recording a reason code, and the documented correction is final. Detail is on the Governance tab.</p></div>
+</section>
+
+<!-- BASELINE -->
+<section class="view" id="v-baseline" aria-labelledby="h-baseline">
+  <h2 id="h-baseline">Baseline and control selection</h2>
+  <p class="sub">The tier and any legal requirement set what must be in place. SHIELD informs which type fits. The assessor records compliance separately.</p>
+  <h3>Baseline register <span class="tag">ILLUSTRATIVE: not approved baseline content</span></h3>
+  <div class="tw"><table>
+    <thead><tr><th>Requirement</th><th>Source</th><th>Parameter</th><th>SHIELD drivers</th><th>STAT selects</th><th>Compliance</th></tr></thead>
+    <tbody>
+      <tr><td><b>Video coverage of the entry</b></td><td>Tier 2 baseline</td><td>—</td><td>Q5 Visual exposure, Q1 Zone boundaries</td><td>Camera type and placement</td><td>Met / Gap / Exception ref.</td></tr>
+      <tr><td><b>Electronic access control with records</b></td><td>Tier 3 baseline (inherited by Tier 2) + legal requirement</td><td>Access records kept 90 days</td><td>Q8 Human exposure, Q1 Zone boundaries</td><td>Reader and credential type</td><td>Met / Gap / Exception ref.</td></tr>
+      <tr><td><b>Forced / held-open door alarm</b></td><td>Tier 2 baseline</td><td>—</td><td>Q9 Exterior exposure, Q3 Time to access</td><td>Sensor and monitoring type</td><td>Met / Gap / Exception ref.</td></tr>
+    </tbody></table></div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card green"><b>Every row must be Met.</b> A gap becomes an action item with an owner, or carries an approved exception reference from governance. SHIELD never closes a row.</div>
+    <div class="card sky"><b>Compliance is reported separately from exposure.</b> The register shows what is required and installed. The SHIELD score shows how exposed the room is. They are never blended.</div>
+  </div>
+  <hr class="sp">
+  <h3>Baseline examples by tier <span class="tag">ILLUSTRATIVE</span></h3>
+  <div class="grid g4" id="base-ex"></div>
+  <hr class="sp">
+  <h3>SHIELD drivers that prompt a closer look <span class="tag">PROPOSED working rule: a score of 4–5 flags a driver</span></h3>
+  <div class="grid g3" id="triggers"></div>
+</section>
+
+<!-- LEADERSHIP -->
+<section class="view" id="v-leadership" aria-labelledby="h-leadership">
+  <h2 id="h-leadership">Leadership view: where to invest</h2>
+  <p class="sub">Rooms in the same tier, factor by factor. Click a column heading to sort. Compare within one tier only. <span class="tag">ILLUSTRATIVE DATA ONLY</span></p>
+  <div class="row" style="margin-bottom:8px"><label for="tier-sel" class="small"><b>Tier shown:</b></label>
+    <select id="tier-sel" style="font:inherit;padding:6px 10px;border-radius:8px;border:1.5px solid var(--line)"><option value="2">Tier 2 (all rooms meet the Tier 2 baseline except where noted)</option></select></div>
+  <div class="tw"><table class="heat" id="heat"></table></div>
+  <div class="legend"><span><i style="background:var(--green-bg)"></i>1–2 lower exposure</span><span><i style="background:var(--amber-bg)"></i>3 moderate</span><span><i style="background:var(--red-bg)"></i>4–5 higher exposure</span><span>Weights: Prox 15, Entry 20, Time 15, Skill 10, Visual 10, Recog 5, Info 5, Human 10, Ext 10 (unvalidated)</span></div>
+  <div class="grid g3" style="margin-top:8px">
+    <div class="card"><h3>Read the factors first</h3><p class="small" style="margin:0">The factor columns show what to fund. High Entry and Time scores point to hardening and detection. High Human and Ext scores point to visitor management and opening protection.</p></div>
+    <div class="card"><h3>The band only sorts</h3><p class="small" style="margin:0">The exposure band orders the list, but the weights are not yet validated. Treat the factor pattern as the primary evidence.</p></div>
+    <div class="card"><h3>Baseline is separate</h3><p class="small" style="margin:0">Baseline status has its own column and is never blended into exposure. An open item is tracked as an action, not hidden in a score.</p></div>
+  </div>
+</section>
+
+<!-- GOVERNANCE -->
+<section class="view" id="v-gov" aria-labelledby="h-gov">
+  <h2 id="h-gov">Evidence, audit and decisions</h2>
+  <p class="sub">What makes a result repeatable and auditable, how it will be tested, and what still needs a decision.</p>
+  <div class="grid g2">
+    <div class="card"><h3>Required with every SHIELD answer <span class="tag">PROPOSED</span></h3>
+      <ol class="tight"><li>Score (1–5) chosen from the written anchor</li><li>Evidence item: photo, drawing, timed-walk record, schedule or access log, or search record</li><li>Where the evidence came from</li><li>Assessor name and date</li><li>Version of the job aids and anchors used</li><li>A note only when an answer sits between two anchors</li></ol>
+      <p class="small" style="margin:10px 0 0"><b>If evidence is ambiguous:</b> record the higher-exposure anchor and flag it for QA review. <b>Never score from</b> memory, anecdote, or what an installed control is expected to do.</p></div>
+    <div class="card"><h3>LAUNCH validation record <span class="tag">PROPOSED</span></h3>
+      <p class="small" style="margin-top:0">The owner answers; the assessor confirms as <b>Confirmed</b>, <b>Corrected</b> (with a reason code) or <b>Returned to the owner</b>.</p>
+      <ul class="tight"><li>Owner’s answer and assessor-confirmed answer, per question</li><li>Change flag and reason code</li><li>Evidence reference</li><li>Legal requirement citation and parameters (for example a retention period)</li><li>Reviewer ID, date, form and scoring version</li><li>Result: Tier 1–4 or Non-Tier, with the requirement flag</li></ul></div>
+  </div>
+  <hr class="sp">
+  <h3>LAUNCH validation: assessor authority <span class="tag">PROPOSED</span></h3>
+  <div class="grid g4">
+    <div class="card"><div class="row"><span class="badge">1</span><h3 style="margin:0">Confirmation required</h3></div><p class="small" style="margin:8px 0 0">A tier is not final until the Physical Security Assessor has reviewed and confirmed the LAUNCH responses.</p></div>
+    <div class="card"><div class="row"><span class="badge">2</span><h3 style="margin:0">Authority to correct</h3></div><p class="small" style="margin:8px 0 0">The assessor is authorized to correct any owner or ACO response that the evidence does not support.</p></div>
+    <div class="card"><div class="row"><span class="badge">3</span><h3 style="margin:0">Documented basis</h3></div><p class="small" style="margin:8px 0 0">Each correction is recorded with a reason code and an evidence reference.</p></div>
+    <div class="card"><div class="row"><span class="badge">4</span><h3 style="margin:0">Final determination</h3></div><p class="small" style="margin:8px 0 0">A documented correction is final. The audit record retains the original owner response and the corrected response.</p></div>
+  </div>
+  <p class="small" style="margin-top:10px"><b>Items to define before approval:</b> reason-code list; time limit for the owner’s response to a returned item; independence of the assessor from the business unit; reassessment triggers when business conditions change.</p>
+  <hr class="sp">
+  <h3>Pilot: proving two assessors reach the same answer <span class="tag">PROPOSED</span></h3>
+  <div class="grid g4" id="pilot"></div>
+  <p class="small" style="margin-top:10px">The weights and bands are placeholders until this test is run. Sample size and the agreement target are set by governance before the pilot starts.</p>
+  <hr class="sp">
+  <h3>Decisions needed</h3>
+  <div class="grid g2" id="decisions"></div>
+</section>
+
+</main>
+
+<footer><div class="foot-in" id="foot">
+  <span><b>PSAP resources</b></span>
+  <button class="fb" data-link>Policy</button><button class="fb" data-link>Training</button><button class="fb" data-link>Job Aids</button><button class="fb" data-link>FAQs</button><button class="fb" data-link>Examples</button><button class="fb" data-link>Contact</button>
+  <span class="sp kbd">Tip: use the ← → keys to move between sections</span>
+</div></footer>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+"use strict";
+var TABS=[["home","Home"],["process","Process"],["launch","LAUNCH"],["shield","SHIELD"],["tiers","Tiers"],["baseline","Baseline"],["leadership","Leadership"],["gov","Governance"]];
+function $(s,r){return (r||document).querySelector(s)}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+/* ---------- navigation ---------- */
+var nav=$("#nav");
+TABS.forEach(function(t){var b=document.createElement("button");b.textContent=t[1];b.dataset.go=t[0];b.type="button";nav.appendChild(b)});
+var current="home";
+function go(id,noHash){
+  if(!$("#v-"+id))id="home";
+  current=id;
+  document.querySelectorAll(".view").forEach(function(v){v.classList.toggle("on",v.id==="v-"+id)});
+  nav.querySelectorAll("button").forEach(function(b){if(b.dataset.go===id)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current")});
+  if(!noHash)try{history.replaceState(null,"","#"+id)}catch(e){}
+  window.scrollTo(0,0);
+}
+document.addEventListener("click",function(e){
+  var t=e.target.closest("[data-go]");if(t){go(t.dataset.go);return}
+  var l=e.target.closest("[data-link]");if(l)toast("Placeholder: the “"+l.textContent+"” destination will be provided before release.");
+});
+document.addEventListener("keydown",function(e){
+  var tag=(e.target.tagName||"").toLowerCase();
+  if(tag==="input"||tag==="textarea"||tag==="select")return;
+  var i=TABS.findIndex(function(t){return t[0]===current});
+  if(e.key==="ArrowRight"&&i<TABS.length-1)go(TABS[i+1][0]);
+  if(e.key==="ArrowLeft"&&i>0)go(TABS[i-1][0]);
+});
+var tt;function toast(m){var t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(tt);tt=setTimeout(function(){t.classList.remove("on")},2600)}
+
+/* ---------- static content ---------- */
+var FLOW=[
+ ["Business owner / ACO","Request","Requests a new secure room, a reassessment, or a change to an existing area."],
+ ["Business owner / SME","LAUNCH","Answers eight business questions about function, requirements, assets, dependency, recovery, impact and backup."],
+ ["Assessor","Validate","Checks each answer against evidence and confirms Tier 1–4 or Non-Tier, plus any legal requirement."],
+ ["Assessor","SHIELD","Scores nine observable conditions with recorded evidence."],
+ ["Tier + STAT","Baseline","The tier and requirements set what is mandatory. STAT picks the control type, guided by SHIELD drivers."],
+ ["Assessor + leaders","Compliance and investment","Assessor records Met or Gap. Leaders compare same-tier exposure to prioritize spend."]];
+$("#flow").innerHTML=FLOW.map(function(f,i){return '<div class="card"><div class="who">'+esc(f[0])+'</div><div class="row"><span class="badge">'+(i+1)+'</span><h3 style="margin:0">'+esc(f[1])+'</h3></div><p>'+esc(f[2])+'</p></div>'}).join("");
+
+var TIERS=[
+ ["Tier 1","t1","4.00–5.00","Severe impact","Any resource whose loss, damage or compromise results in a degree of impact that critically changes and causes loss or irreversible business capabilities."],
+ ["Tier 2","t2","3.00–3.99","Significant impact","Any resource whose loss, damage or compromise results in a degree of impact that damages and degrades business capabilities."],
+ ["Tier 3","t3","2.00–2.99","Moderate impact","Any resource whose loss, damage or compromise results in a degree of impact that threatens to damage and degrade business capabilities."],
+ ["Tier 4","t4","1.00–1.99","Minor impact","Any resource whose loss, damage or compromise results in a degree of impact that may disrupt business capabilities."]];
+$("#tier-cards").innerHTML=TIERS.map(function(t){return '<div class="card"><span class="pill '+t[1]+'" style="font-size:16px">'+t[0]+'</span><p class="small" style="margin:10px 0 2px"><b>Working score '+t[2]+'</b></p><h3>'+t[3]+'</h3><p class="small" style="margin:0">'+t[4]+'</p></div>'}).join("");
+
+var BASE=[["Tier 4","Basic","Controlled boundary, defined owner, periodic review."],["Tier 3","Controlled","Card reader and access records, door condition standards, visitor and contractor process."],["Tier 2","Enhanced","Tier 3 plus forced or held-open monitoring, video coverage, monitored alarm where indicated."],["Tier 1","Strongest","Tier 2 plus layered detection, enhanced authentication, hardening, response integration and specialized controls."]];
+$("#base-ex").innerHTML=BASE.map(function(b){return '<div class="card"><h3>'+b[0]+': '+b[1]+'</h3><p class="small" style="margin:0">'+b[2]+'</p></div>'}).join("");
+
+var PILOT=[["Select rooms","Cover all four tiers and the full 1–5 range on each question."],["Score independently","Two assessors score the same rooms with the job aids and no discussion."],["Compare by question","Exact match, within-one match and a weighted agreement statistic for each question."],["Fix the cause","Rewrite the anchor or definition behind each disagreement, then re-test on new rooms and validate weights and bands."]];
+$("#pilot").innerHTML=PILOT.map(function(p,i){return '<div class="card"><div class="row"><span class="badge">'+(i+1)+'</span><h3 style="margin:0">'+p[0]+'</h3></div><p class="small" style="margin:8px 0 0">'+p[1]+'</p></div>'}).join("");
+
+var DEC=[["Governance","Non-Tier cutoff score and the Q3/Q7 guard conditions"],["Governance","Q8 “Not applicable”: score 1, or exclude it and re-weight the other questions"],["Governance","LAUNCH point mapping: 1–5 in listed answer order"],["Governance","Ambiguity rule: higher-exposure anchor plus QA flag"],["Governance","Pilot sample size and agreement target"],["Governance","SHIELD band cut-offs, and whether leaders use factor scores, composite, or both"],["Protective Security","Approve the glossary and write the barrier and tool/knowledge tables"]];
+$("#decisions").innerHTML=DEC.map(function(d,i){return '<div class="card"><div class="row"><span class="badge" style="background:var(--navy)">'+(i+1)+'</span><div><div class="small" style="color:var(--teal);font-weight:700">'+d[0]+'</div>'+esc(d[1])+'</div></div></div>'}).join("");
+
+/* ---------- LAUNCH data ---------- */
+var FUNCS=["Safekeeping of valuables such as currency or IT equipment","High-value asset storage","Data transmission / network infrastructure","Data storage","Sensitive business operations","Building infrastructure such as water, electrical or HVAC","Executive leadership area","Physical security operations","Life-safety systems","Other"];
+var LQ=[
+ {id:"q3",n:3,t:"Asset Type",q:"What type of assets are housed in this room or area? Answer for the highest-criticality asset, system or information actually housed in the room.",w:20,
+  a:["General office equipment or supplies","Department-specific equipment, records or resources","Shared business systems or sensitive information","Association systems, security systems or regulated information","Mission-critical infrastructure, life-safety systems or highly sensitive assets"],
+  help:"Ranks the nature of the assets without relying only on room type. This helps avoid a fixed MDF/BSA/ITSA lookup model.",note:"Answer for the highest-criticality asset actually housed in the room. The assessor validates the evidence and uses the selected value in the weighted tier calculation."},
+ {id:"q4",n:4,t:"Routine Access",q:"How limited is the legitimate business population requiring access to this asset?",w:0,
+  a:["Broad business population: no access restrictions","Defined business population: all badged employees and contractors","Limited business population: badged employees only","Restricted access population: access limited to a small number of specifically approved individuals","Highly restricted access only: normally limited to very few individuals and may require approval for a specific purpose each time"],
+  help:"Context only, 0% tier weight. Identifies the legitimate business access population. This supports later access-control design, approvals and procedures, while SHIELD separately evaluates physical exposure.",note:"Answer for the normal authorized population requiring access. The assessor validates the access model."},
+ {id:"q5",n:5,t:"Business Dependency",q:"How dependent are daily business operations on this room or area?",w:25,
+  a:["Minimal: convenience function only","Limited: supports a single team or department","Moderate: supports multiple departments or a business function","Significant: supports critical business operations or major site functions","Severe: supports Association-wide operations or could cause major business interruption"],
+  help:"Establishes consequence if the room is unavailable. This belongs with the business owner or SME, not the physical security assessor.",note:"Answer based on documented business conditions for the actual room or area. The assessor validates the evidence."},
+ {id:"q6",n:6,t:"Recovery Capability",q:"If this room or area became unavailable, how quickly could operations be restored using existing recovery plans, redundancies or alternate locations?",w:20,
+  a:["Within hours","Within 1 day","Within 1 week","Within 1 month","More than 1 month or no practical recovery option"],
+  help:"Measures operational resilience. A critical room with poor recovery capability should generally receive a higher baseline protection requirement.",note:"Answer based on documented business conditions for the actual room or area. The assessor validates the evidence."},
+ {id:"q7",n:7,t:"Unauthorized Access Impact",q:"What could be the impact if assets, systems, information or equipment in this room were accessed by an unauthorized person?",w:25,
+  a:["No meaningful impact","Limited impact to a small workgroup","Moderate impact to a department or business function","Significant impact to multiple departments, a site or customers","Severe enterprise, regulatory, financial or reputational impact"],
+  help:"Captures consequence of disclosure, theft, tampering or unauthorized access in business terms.",note:"Answer based on documented business conditions for the actual room or area. The assessor validates the evidence."},
+ {id:"q8",n:8,t:"Backup / Alternate Resources",q:"Are backup systems or alternate resources available if a primary system or component in this room fails?",w:10,
+  a:["Full redundancy: continuity with little or no interruption","High redundancy: backup available with minimal downtime","Moderate redundancy: backups exist, but single points of failure remain","Limited redundancy: some backup capability exists but recovery requires significant effort","No redundancy: critical functions depend on a single point of failure"],
+  extra:"Not applicable: no function requiring redundancy",
+  help:"Completes the LAUNCH criticality picture by identifying whether the operation can tolerate loss or requires stronger protection.",note:"Answer based on documented business conditions for the actual room or area. “Not applicable” scores 1 (proposed) and only after the assessor confirms nothing requires redundancy."}
+];
+var L={step:0,q1:[],q2:"",q2c:"",req:{}};
+var LSTEPS=["Request","1 Function","2 Requirement"].concat(LQ.map(function(q){return q.n+" "+q.t})).concat(["Result"]);
+
+function launchScore(){
+  var s=0,ok=true;
+  LQ.forEach(function(q){
+    if(!q.w)return;
+    var v=L[q.id];
+    if(v===undefined)ok=false;
+    else s+=(v==="na"?1:v+1)*q.w/100;
+  });
+  return {score:s,complete:ok};
+}
+function tierFor(s){return s>=4?0:s>=3?1:s>=2?2:3}
+
+function stepsHTML(names,cur,doneFn,key){
+  return '<div class="steps" role="navigation" aria-label="Steps"><h4>'+key+'</h4>'+names.map(function(n,i){
+    return '<button type="button" class="step'+(i===cur?" cur":"")+(doneFn(i)?" done":"")+'" data-step="'+i+'"><span class="dot"></span>'+esc(n)+'</button>'}).join("")+'</div>';
+}
+
+function renderLaunch(){
+  var el=$("#wiz-launch"),s=L.step,main="",side="";
+  var last=LSTEPS.length-1;
+  if(s===0){
+    main='<div class="qhead"><h3>Initial request information</h3></div><p class="small" style="margin-top:0">Captures the room or area being assessed before the LAUNCH questions begin. Nothing entered here is stored.</p><div class="ff">'+
+    ["Request date (auto-populated)","Room name","Requestor name","Business owner","LOB","Office location","Unit code (FCC)","Room coordinates"].map(function(f,i){
+      var d=i===0?new Date().toLocaleDateString():"";return '<div class="field"><label>'+f+'</label><input type="text" data-req="'+i+'" value="'+esc(L.req[i]||d)+'"'+(i===0?" readonly":"")+'></div>'}).join("")+'</div>';
+    side='<div class="card help"><h4>Hover help</h4><p>The initial information ensures the request is assigned to the correct site, business owner, ACO and room/area record before scoring begins.</p></div>';
+  }else if(s===1){
+    main='<div class="qhead"><h3>1. Room Function</h3><span class="tag note">Context only: 0% tier weight</span></div><p class="qtext">What functions does this room or area support? Select all that apply.</p><div class="opts">'+
+    FUNCS.map(function(f,i){var sel=L.q1.indexOf(i)>-1;return '<label class="opt'+(sel?" sel":"")+'"><input type="checkbox" data-q1="'+i+'"'+(sel?" checked":"")+'><span>'+esc(f)+'</span></label>'}).join("")+'</div>';
+    side='<div class="card help"><h4>Why this matters</h4><p>Identifies the primary business or operational function. The selected function type becomes a tool resource used to provide relevant definitions and examples throughout LAUNCH, SHIELD and the review process. It does not raise or lower the tier score.</p></div><div class="card"><h4>Owner / SME note</h4><p>Select the function(s) that best describe the actual room or area. Used for guidance and examples only.</p></div>';
+  }else if(s===2){
+    main='<div class="qhead"><h3>2. Legal / Regulatory Requirement</h3><span class="tag note">Flag only: 0% tier weight</span></div><p class="qtext">Are there any legal, regulatory, or business requirements that require physical security measures for this room or area?</p><div class="opts">'+
+    [["yes","Yes: requirement identified by business/SME"],["no","No: no known requirement"],["unk","Unknown: needs Security/Compliance validation"]].map(function(o){var sel=L.q2===o[0];return '<label class="opt'+(sel?" sel":"")+'"><input type="radio" name="q2" value="'+o[0]+'"'+(sel?" checked":"")+'><span>'+o[1]+'</span></label>'}).join("")+'</div>'+
+    (L.q2==="yes"?'<div class="field"><label for="q2c">Identify the legal / regulatory / business requirement (citation, policy or standard, and any parameter such as a retention period)</label><textarea id="q2c" rows="3">'+esc(L.q2c)+'</textarea></div>':"");
+    side='<div class="card help"><h4>Why this matters</h4><p>Separates known requirements from assumptions. “Unknown” is available so you do not have to guess. It routes the item to Security/Compliance for validation. Confirmed requirements become mandatory obligations in the baseline. They do not add points to the tier score.</p></div>';
+  }else if(s>=3&&s<last){
+    var q=LQ[s-3],v=L[q.id];
+    var items=q.a.map(function(a,i){return {k:i,txt:a,pts:q.w?i+1:null}});
+    if(q.extra)items.push({k:"na",txt:q.extra,pts:1});
+    main='<div class="qhead"><h3>'+q.n+'. '+esc(q.t)+'</h3><span class="tag note">'+(q.w?q.w+"% of score":"Context only: 0% tier weight")+'</span></div><p class="qtext">'+esc(q.q)+'</p><div class="opts">'+
+    items.map(function(it){var sel=v===it.k;return '<label class="opt'+(sel?" sel":"")+'"><input type="radio" name="'+q.id+'" value="'+it.k+'"'+(sel?" checked":"")+'><span>'+esc(it.txt)+'</span>'+(it.pts?'<span class="pts">'+it.pts+(it.pts===1?" pt":" pts")+'</span>':"")+'</label>'}).join("")+'</div>';
+    side='<div class="card help"><h4>Why this matters</h4><p>'+esc(q.help)+'</p></div><div class="card"><h4>Owner / SME note</h4><p>'+esc(q.note)+'</p></div>';
+  }else{
+    var r=launchScore(),T=TIERS[tierFor(r.score)];
+    var gate2=L.q2==="no",gate3=(L.q3===0&&L.q7===0);
+    main='<div class="qhead"><h3>LAUNCH result</h3><span class="tag">PROPOSED scoring</span></div>'+
+    (r.complete&&L.q2?'<div class="result"><div class="card"><div class="small">Weighted LAUNCH score</div><div class="big">'+r.score.toFixed(2)+'</div><p style="margin:14px 0 6px"><span class="pill '+T[1]+'">'+T[0]+'</span></p><p class="small" style="margin:0">Working range '+T[2]+'. '+T[3]+'. Pending assessor validation.</p></div>'+
+    '<div class="card"><h4 style="margin:0 0 6px">Requirement flag</h4><p style="margin:0">'+(L.q2==="yes"?"Requirement identified: "+esc(L.q2c||"(citation not yet entered)")+". Mandatory on top of the tier baseline.":L.q2==="unk"?"Open: Security/Compliance must validate before the result is final.":"No known requirement.")+'</p>'+
+    '<h4 style="margin:14px 0 6px">Non-Tier check</h4><ul class="tight"><li>Score below governance cutoff: <b>cutoff not yet set</b></li><li>Q2 is “No”: <b>'+(gate2?"met":"not met")+'</b></li><li>Q3 and Q7 at lowest answers: <b>'+(gate3?"met":"not met")+'</b></li></ul></div></div>'+
+    '<div class="card green" style="margin-top:16px"><b>Next:</b> the assessor reviews each answer against evidence, records Confirmed / Corrected / Returned, then completes SHIELD. The tier does not change because of SHIELD or installed controls.</div>':
+    '<div class="card amber"><b>Answer every question to see the result.</b> Still open: '+(L.q2?"":"Q2 ")+LQ.filter(function(q){return q.w&&L[q.id]===undefined}).map(function(q){return "Q"+q.n}).join(", ")+'.</div>');
+    side='<div class="card"><h4>How the score works</h4><p>Q3×0.20 + Q5×0.25 + Q6×0.20 + Q7×0.25 + Q8×0.10, each answer scored 1–5 in the order shown. Q1, Q2 and Q4 carry no weight.</p></div>';
+  }
+  var nextLabel=s===last?"Start over":(s===last-1?"See result":"Next");
+  el.innerHTML=stepsHTML(LSTEPS,s,function(i){
+    if(i===0)return false;if(i===1)return L.q1.length>0;if(i===2)return !!L.q2;if(i===last)return false;
+    var q=LQ[i-3];return L[q.id]!==undefined},"LAUNCH")+
+  '<div><div class="card">'+main+'<div class="nav-row"><button class="btn ghost" type="button" data-lnav="-1"'+(s===0?" disabled":"")+'>‹ Back</button><button class="btn" type="button" data-lnav="1">'+nextLabel+(s===last?"":" ›")+'</button></div></div></div><div class="side">'+side+'</div>';
+}
+$("#wiz-launch").addEventListener("click",function(e){
+  var st=e.target.closest("[data-step]");if(st){L.step=+st.dataset.step;renderLaunch();return}
+  var n=e.target.closest("[data-lnav]");if(n){
+    if(n.dataset.lnav==="1"&&L.step===LSTEPS.length-1){L={step:0,q1:[],q2:"",q2c:"",req:{}};}
+    else L.step=Math.max(0,Math.min(LSTEPS.length-1,L.step+(+n.dataset.lnav)));
+    renderLaunch();window.scrollTo(0,0)}
+});
+$("#wiz-launch").addEventListener("change",function(e){
+  var t=e.target;
+  if(t.dataset.q1!==undefined){var i=+t.dataset.q1,k=L.q1.indexOf(i);if(k>-1)L.q1.splice(k,1);else L.q1.push(i)}
+  else if(t.name==="q2")L.q2=t.value;
+  else if(t.name&&/^q[3-8]$/.test(t.name))L[t.name]=t.value==="na"?"na":+t.value;
+  else return;
+  renderLaunch();
+});
+$("#wiz-launch").addEventListener("input",function(e){var t=e.target;if(t.id==="q2c")L.q2c=t.value;if(t.dataset.req!==undefined)L.req[t.dataset.req]=t.value});
+
+/* ---------- SHIELD data ---------- */
+var RULE_PRE="Score 1 = lowest exposure; 5 = highest. ";
+var SQ=[
+ {t:"Physical Proximity",short:"Prox",w:15,q:"Counting from the nearest uncontrolled or public point, how many access-controlled zone boundaries must be crossed to reach the room or area?",
+  a:["Must cross 3 or more access-controlled zone boundaries","Must cross 2 access-controlled zone boundaries","Must cross 1 access-controlled zone boundary","Can reach the immediate area without crossing a zone boundary, but not directly from a public area","Can directly approach the asset from a public or unrestricted area"],
+  help:"Measures how close an unauthorized person can physically get before controls must stop them. This informs perimeter/access-control strength.",
+  rule:"Record the evidence/source. Count access-controlled zone boundaries (site gate, building entrance, floor or suite door) on the shortest normal route from the nearest uncontrolled point. The room’s own door is scored in Q2.",
+  trig:"Review access-control variant, visitor controls and camera placement/coverage."},
+ {t:"Ease of Entry",short:"Entry",w:20,q:"How difficult would it be for an unauthorized individual to gain entry through the room or area’s own boundary?",
+  a:["Entry requires defeating 3 or more independent barriers at the room/area boundary","Entry requires defeating 2 independent barriers at the room/area boundary","Entry requires defeating 1 hardened or rated barrier (per job-aid barrier table)","Entry requires bypassing 1 standard, unrated barrier (standard door, gate or similar)","No physical barrier prevents entry"],
+  help:"Converts entry condition into countable, independent physical layers. The result informs whether STAT should use stronger hardening, layered protection or secondary detection while still meeting the mandatory baseline.",
+  rule:"Record the evidence/source. Count independent barriers on the room’s own entry route only; exclude boundaries counted in Q1. Devices on one opening count as one barrier. Use the job-aid barrier table for hardened vs standard.",
+  trig:"Review stronger hardening, layered protection or secondary detection."},
+ {t:"Time to Access",short:"Time",w:15,q:"How long does it take to walk from the nearest uncontrolled approach point to the room or area’s outermost door or opening? (Record a timed walk.)",
+  a:["More than 10 minutes","5 to 10 minutes","2 to 5 minutes","30 seconds to 2 minutes","Less than 30 seconds"],
+  help:"Measures available approach time using a defined, timed route. Short access time can justify faster detection, monitoring, assessment and response capability within or above the mandatory baseline.",
+  rule:"Time the documented route at normal walking pace and record the route, start point and time. Do not include time to defeat the boundary. Re-time if the route changes.",
+  trig:"Review earlier detection, monitored alarms and faster assessment capability."},
+ {t:"Skill / Resources Needed to Defeat Controls",short:"Skill",w:10,q:"What level of skill, tools, inside knowledge, or specialized equipment would be needed to bypass or defeat the room or area’s physical boundary?",
+  a:["Requires specialized technical knowledge and equipment not commonly available","Requires specialized equipment or documented technical knowledge","Requires commercially available tools and basic knowledge of the barrier or control","Ordinary hand tools or simple manipulation could defeat the boundary","No tools or specialized knowledge needed; boundary is easily bypassed"],
+  help:"Rates the observable skill/tools needed to defeat the physical boundary, not adversary intent. Lower skill/common-tool requirements can support stronger hardening, tamper resistance, added detection or an additional layer selected by STAT.",
+  rule:"Record the evidence/source. Rate observable tool/knowledge requirements only, using the job-aid tool and knowledge reference table. Do not assume insider access, unusual intent or capabilities that are not supported by evidence.",
+  trig:"Review hardened barrier, additional layer and tamper-resistant hardware."},
+ {t:"Visual Exposure",short:"Visual",w:10,q:"How easily can the asset be seen and observed in its environment?",
+  a:["Not visible from any uncontrolled area","Visible only from a restricted or controlled adjacent area","Partially visible from an uncontrolled area","Fully visible from an uncontrolled (non-public) area","Fully visible from a public or unrestricted area"],
+  help:"Captures visibility without asking the assessor to guess intent. Higher visibility can justify cameras, screening or concealment measures.",
+  rule:"Record the evidence/source. Photograph the view from the nearest uncontrolled observation point at standing eye level and record the location. “Uncontrolled” and “public or unrestricted” are defined in the job aid.",
+  trig:"Review camera coverage, concealment and signage."},
+ {t:"Recognizability",short:"Recog",w:5,q:"How easily can the asset’s purpose, value or importance be understood by someone unfamiliar with it?",
+  a:["Purpose cannot reasonably be determined from visible characteristics","Purpose can only be determined with specialized or internal knowledge","General function can be inferred, but specific purpose/value is not apparent","Purpose is apparent from signage, equipment, layout or routine activity","Purpose and security significance are explicitly identified or obvious"],
+  help:"Measures whether an outsider could recognize the target value. This can drive signage decisions, concealment, access zoning and video coverage.",
+  rule:"Record the evidence/source. Rate only what an unfamiliar person could infer from visible characteristics, signage, equipment, layout or routine activity, not the assessor’s prior knowledge. Photograph the cues relied on.",
+  trig:"Review signage, concealment, access zoning and video coverage."},
+ {t:"Information Availability",short:"Info",w:5,q:"How readily available is information about the asset’s characteristics, location or function to the general public?",
+  a:["No public information identifies the asset or its location","General facility information is public, but the asset is not identified","Asset type/function is publicly identifiable, but location/details are not","Asset location or operational details are publicly available","Detailed location, function, configuration or access information is publicly available"],
+  help:"Identifies whether public information increases exposure. A standardized search procedure makes this factor repeatable and can support stronger control variants or supplemental measures even for an interior space.",
+  rule:"Follow the approved public-source search procedure: the same sources and search terms for every assessment. Record each source checked, the query used, the date and the result.",
+  trig:"Review stronger control variants or supplemental measures."},
+ {t:"Human / Operational Exposure",short:"Human",w:10,q:"Which people not permanently assigned to the room or area enter or work in the immediate area, and how often?",
+  a:["No non-assigned persons, or exception-only (escorted) access","Non-assigned persons enter less than monthly","Non-assigned employees or contractors enter monthly to weekly","Contractors or service personnel enter daily or routinely","Visitors, customers/members or the public enter daily or routinely"],
+  help:"Captures operational exposure created by people, service work, vendors or visitors. This drives escort, visitor management, access logging and surveillance needs.",
+  rule:"Record the evidence/source. When more than one population applies, score the highest applicable anchor and record each population with its source (schedule, access log or work-order record). Do not score from anecdote.",
+  trig:"Review visitor/escort process, credential controls and access review."},
+ {t:"Exterior / Environmental Exposure",short:"Ext",w:10,q:"Does the room or area have direct exposure to exterior, uncontrolled or environmental conditions that affect required protection?",
+  a:["Fully interior; no uncontrolled adjacency or exterior exposure","Adjacent to lower-controlled interior space only","Exterior wall, service penetration or nearby utility/environmental exposure","Accessible exterior opening, service route, dock or equipment opening","Direct public exterior door, vehicle-accessible boundary or high-risk environmental exposure"],
+  help:"Captures exterior and environmental exposure that can require alarms, cameras, hardened construction, standoff, barriers, fire/life-safety coordination or other special controls.",
+  rule:"Record the evidence/source. Select the highest applicable exposure condition actually present and attach a photo or drawing reference for the condition that drove the score.",
+  trig:"Review door forced/held monitoring, intrusion detection and exterior video."}
+];
+function band(p){return p<20?"Low":p<40?"Moderate":p<62.5?"Elevated":"High"}
+var S={step:0,ans:SQ.map(function(){return undefined}),ev:SQ.map(function(){return ""})};
+var SSTEPS=SQ.map(function(q,i){return (i+1)+" "+q.short}).concat(["Result"]);
+function shieldScore(){var s=0,n=0;SQ.forEach(function(q,i){if(S.ans[i]!==undefined){s+=S.ans[i]*q.w/4;n++}});return {score:s,complete:n===SQ.length,n:n}}
+function renderShield(){
+  var el=$("#wiz-shield"),s=S.step,last=SSTEPS.length-1,main="",side="";
+  if(s<last){
+    var q=SQ[s],v=S.ans[s];
+    main='<div class="qhead"><h3>'+(s+1)+'. '+esc(q.t)+'</h3><span class="tag note">'+q.w+' points of 100</span></div><p class="qtext">'+esc(q.q)+'</p><div class="opts">'+
+    q.a.map(function(a,i){var sel=v===i;return '<label class="opt'+(sel?" sel":"")+'"><input type="radio" name="sq" value="'+i+'"'+(sel?" checked":"")+'><span>'+esc(a)+'</span><span class="pts">'+(i+1)+'</span></label>'}).join("")+'</div>'+
+    '<div class="field"><label for="ev">Evidence and source <span class="small">(required: photo ID, drawing reference, timed-walk record, log or search record)</span></label><textarea id="ev" rows="2" placeholder="Describe the evidence used for this score">'+esc(S.ev[s])+'</textarea>'+(v!==undefined&&!S.ev[s].trim()?'<div class="warn">Evidence is required for this answer before the assessment can be submitted.</div>':"")+'</div>';
+    side='<div class="card help"><h4>What this accomplishes</h4><p>'+esc(q.help)+'</p></div><div class="card"><h4>Scoring rule</h4><p>'+RULE_PRE+esc(q.rule)+'</p></div>';
+  }else{
+    var r=shieldScore();
+    var miss=SQ.map(function(q,i){return S.ans[i]!==undefined&&!S.ev[i].trim()?i+1:0}).filter(Boolean);
+    if(r.n===0){main='<div class="qhead"><h3>SHIELD result</h3></div><div class="card amber"><b>Score at least one factor to see the profile.</b> Use the steps on the left.</div>'}
+    else{
+      main='<div class="qhead"><h3>SHIELD exposure profile</h3><span class="tag">PROPOSED weights and bands</span></div>'+
+      '<div class="result"><div class="card"><div class="small">'+(r.complete?"SHIELD exposure score (0–100)":"Partial score (weights of answered factors, "+r.n+" of 9)")+'</div><div class="big">'+(r.complete?Number(r.score.toFixed(2))+' <span class="small" style="font-weight:400">out of 100</span>':"—")+'</div><p style="margin:12px 0 0">'+(r.complete?'<span class="tag" style="font-size:14px">Working band: '+band(r.score)+'</span>':"")+'</p><p class="small" style="margin:10px 0 0">Bands are working values, to be validated in the pilot. The score does not change the tier.</p></div>'+
+      '<div class="card"><h4 style="margin:0 0 6px">Factor scores</h4>'+SQ.map(function(q,i){var a=S.ans[i];return '<div class="bar"><span>'+esc(q.short)+'</span><div class="track">'+(a!==undefined?'<div class="fill s'+(a+1)+'" style="width:'+((a+1)*20)+'%"></div>':"")+'</div><b>'+(a!==undefined?a+1:"–")+'</b></div>'}).join("")+'</div></div>'+
+      '<div class="card sky" style="margin-top:16px"><h4 style="margin:0 0 6px">Drivers flagged for STAT <span class="small">(working rule: a score of 4–5)</span></h4>'+
+      (function(){var f=SQ.map(function(q,i){return S.ans[i]>=3?'<li><b>'+esc(q.short)+' ('+(S.ans[i]+1)+'):</b> '+esc(q.trig)+'</li>':""}).join("");return f?'<ul class="tight">'+f+'</ul>':'<p style="margin:0">No driver flagged.</p>'})()+
+      '<p class="small" style="margin:10px 0 0">These prompts help STAT choose the control type that satisfies the baseline. They never waive or reduce a baseline requirement.</p></div>'+
+      (miss.length?'<div class="card red" style="margin-top:16px"><b>Evidence missing</b> for question'+(miss.length>1?"s":"")+' '+miss.join(", ")+'. The assessment cannot be submitted without it.</div>':"");
+    }
+    side='<div class="card"><h4>How the score works</h4><p>Nine factors, each answered on a written 1–5 anchor. The anchor earns 0, 25, 50, 75 or 100 percent of the factor’s points. Points out of 100: Prox 15, Entry 20, Time 15, Skill 10, Visual 10, Recog 5, Info 5, Human 10, Ext 10.</p></div><div class="card"><h4>Bands (working)</h4><p>Low under 20 · Moderate 20 to under 40 · Elevated 40 to under 62.5 · High 62.5 and above</p></div>';
+  }
+  el.innerHTML=stepsHTML(SSTEPS,s,function(i){return i<last&&S.ans[i]!==undefined},"SHIELD")+
+  '<div><div class="card">'+main+'<div class="nav-row"><button class="btn ghost" type="button" data-snav="-1"'+(s===0?" disabled":"")+'>‹ Back</button><button class="btn teal" type="button" data-snav="1">'+(s===last?"Start over":(s===last-1?"See result ›":"Next ›"))+'</button></div></div></div><div class="side">'+side+'</div>';
+}
+$("#wiz-shield").addEventListener("click",function(e){
+  var st=e.target.closest("[data-step]");if(st){S.step=+st.dataset.step;renderShield();return}
+  var n=e.target.closest("[data-snav]");if(n){
+    if(n.dataset.snav==="1"&&S.step===SSTEPS.length-1){S={step:0,ans:SQ.map(function(){return undefined}),ev:SQ.map(function(){return ""})}}
+    else S.step=Math.max(0,Math.min(SSTEPS.length-1,S.step+(+n.dataset.snav)));
+    renderShield();window.scrollTo(0,0)}
+});
+$("#wiz-shield").addEventListener("change",function(e){if(e.target.name==="sq"){S.ans[S.step]=+e.target.value;renderShield()}});
+$("#wiz-shield").addEventListener("input",function(e){if(e.target.id==="ev"){S.ev[S.step]=e.target.value;var w=$("#wiz-shield .warn");if(w&&e.target.value.trim())w.remove()}});
+
+/* ---------- Tiers: mapping table ---------- */
+(function(){
+  var h='<thead><tr><th>Pts</th>'+LQ.filter(function(q){return q.w}).map(function(q){return '<th>Q'+q.n+' '+esc(q.t)+' ('+q.w+'%)</th>'}).join("")+'</tr></thead><tbody>';
+  var short={q3:["General office equipment or supplies","Department-specific equipment, records or resources","Shared business systems or sensitive information","Association systems, security systems or regulated information","Mission-critical infrastructure, life-safety or highly sensitive assets"],
+   q5:["Minimal","Limited","Moderate","Significant","Severe"],q6:["Within hours","Within 1 day","Within 1 week","Within 1 month","More than 1 month, or no practical option"],
+   q7:["No meaningful impact","Limited, small workgroup","Moderate, department or function","Significant, multiple departments, site or customers","Severe enterprise, regulatory, financial or reputational"],
+   q8:["Full redundancy","High redundancy","Moderate redundancy","Limited redundancy","No redundancy"]};
+  for(var i=0;i<5;i++){h+='<tr><td><b>'+(i+1)+'</b></td>'+["q3","q5","q6","q7","q8"].map(function(k){return '<td>'+short[k][i]+'</td>'}).join("")+'</tr>'}
+  h+='<tr><td><b>N/A</b></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Not applicable: scored 1</td></tr></tbody>';
+  $("#map-table").innerHTML=h;
+})();
+
+/* ---------- Baseline: triggers ---------- */
+$("#triggers").innerHTML=SQ.map(function(q,i){return '<div class="card"><h3>'+(i+1)+'. '+esc(q.short)+'</h3><p class="small" style="margin:0">'+esc(q.trig)+'</p></div>'}).join("");
+
+/* ---------- Leadership heat map (illustrative) ---------- */
+var ROOMS=[["Room A",[1,2,1,2,1,2,1,1,1],"Met"],["Room B",[2,3,2,3,2,2,2,2,3],"Met"],["Room C",[3,2,4,3,3,3,2,3,2],"Met"],["Room D",[4,4,5,4,4,3,3,4,4],"Met"],["Room E",[2,2,3,2,3,4,3,5,2],"Met"],["Room F",[5,4,4,3,5,4,4,4,5],"Gap: 1 open item"]];
+var W=SQ.map(function(q){return q.w});
+var HS={key:"score",dir:-1};
+function comp(v){var s=0;v.forEach(function(x,i){s+=(x-1)*W[i]/4});return s}
+function renderHeat(){
+  var rows=ROOMS.map(function(r){return {n:r[0],v:r[1],c:comp(r[1]),b:r[2]}});
+  rows.sort(function(a,b){var x,y;
+    if(HS.key==="score"){x=a.c;y=b.c}else if(HS.key==="room"){return HS.dir*a.n.localeCompare(b.n)}else if(HS.key==="base"){return HS.dir*a.b.localeCompare(b.b)}else{x=a.v[+HS.key];y=b.v[+HS.key]}
+    return HS.dir*(x-y)||a.n.localeCompare(b.n)});
+  var arrow=function(k){return HS.key===k?(HS.dir<0?" ▼":" ▲"):""};
+  var h='<thead><tr><th class="sortable" tabindex="0" data-sk="room">Room'+arrow("room")+'</th>'+SQ.map(function(q,i){return '<th class="sortable" tabindex="0" data-sk="'+i+'" title="'+esc(q.t)+'" style="text-align:center">'+esc(q.short)+arrow(String(i))+'</th>'}).join("")+'<th class="sortable" tabindex="0" data-sk="score" style="text-align:center">Exposure band'+arrow("score")+'</th><th class="sortable" tabindex="0" data-sk="base">Baseline'+arrow("base")+'</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    h+='<tr><td><b>'+r.n+'</b></td>'+r.v.map(function(x,i){return '<td class="c v'+x+'" title="'+esc(SQ[i].t)+': '+x+'">'+x+'</td>'}).join("")+'<td class="c" style="background:#fff!important">'+band(r.c)+'</td><td style="'+(r.b==="Met"?"":"background:var(--amber-bg)")+'">'+r.b+'</td></tr>'});
+  var avg=SQ.map(function(q,i){var s=0;ROOMS.forEach(function(r){s+=r[1][i]});return s/ROOMS.length});
+  h+='<tr><td><b>Tier average</b></td>'+avg.map(function(x){var k=Math.round(x);return '<td class="c v'+k+'">'+x.toFixed(1)+'</td>'}).join("")+'<td class="c" style="background:#fff!important">'+band(ROOMS.reduce(function(s,r){return s+comp(r[1])},0)/ROOMS.length)+'</td><td></td></tr></tbody>';
+  $("#heat").innerHTML=h;
+}
+$("#heat").addEventListener("click",function(e){var t=e.target.closest("[data-sk]");if(!t)return;var k=t.dataset.sk;if(HS.key===k)HS.dir*=-1;else{HS.key=k;HS.dir=-1}renderHeat()});
+$("#heat").addEventListener("keydown",function(e){if(e.key==="Enter"||e.key===" "){var t=e.target.closest("[data-sk]");if(t){e.preventDefault();t.click();var k=t.dataset.sk;setTimeout(function(){var n=$('#heat [data-sk="'+k+'"]');if(n)n.focus()},0)}}});
+
+renderLaunch();renderShield();renderHeat();
+var start=(location.hash||"").replace("#","");
+go(TABS.some(function(t){return t[0]===start})?start:"home",true);
+})();
+</script>
+</body>
+</html>
