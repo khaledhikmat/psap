@@ -29,9 +29,11 @@ import (
 	"github.com/khaledhikmat/psap/service"
 	"github.com/khaledhikmat/psap/service/config"
 	"github.com/khaledhikmat/psap/service/data"
+	"github.com/khaledhikmat/psap/service/flow"
 	"github.com/khaledhikmat/psap/service/lgr"
 	"github.com/khaledhikmat/psap/utils"
 	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/mem"
 	"github.com/shirou/gopsutil/process"
 )
 
@@ -262,12 +264,23 @@ func main() {
 		)
 		return
 	}
+
 	// data service
-	dataSvc := data.NewDynamoDB(canxCtx, cfgSvc)
+	dataSvc := data.NewSQLLite(canxCtx, cfgSvc)
 	if dataSvc == nil {
 		lgr.Logger.Error(
 			"unable to instantiate data service",
-			slog.Any("error", xerrors.New(err.Error())),
+			slog.Any("error", xerrors.New("unable to open SQLite database")),
+		)
+		return
+	}
+
+	// flow service
+	flowSvc := flow.NewTemporal(cfgSvc, dataSvc)
+	if flowSvc == nil {
+		lgr.Logger.Error(
+			"unable to instantiate flow service",
+			slog.Any("error", xerrors.New("unable to connect to Temporal")),
 		)
 		return
 	}
@@ -276,6 +289,7 @@ func main() {
 		CanxCtx: canxCtx,
 		CfgSvc:  cfgSvc,
 		DataSvc: dataSvc,
+		FlowSvc: flowSvc,
 	}
 
 	// Run Timestamp as POD

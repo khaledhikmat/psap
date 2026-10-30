@@ -74,7 +74,7 @@ func NewController(svcs service.ServicesFactory, eventStream chan<- interface{})
 
 	if !apiMetricsInitialized {
 		eventStream <- model.GenErrEvent("api", "controller",
-			model.HighEventSeverity,
+			"high",
 			fmt.Errorf("unable to initialize metrics"),
 			map[string]interface{}{},
 			"error initializing metrics")
@@ -93,27 +93,27 @@ func NewController(svcs service.ServicesFactory, eventStream chan<- interface{})
 func (c *Controller) Routes(rootRouter *gin.RouterGroup) {
 	rootRouter.GET("/ping", c.ping)
 
-	tiersRouter := rootRouter.Group("/tiers")
-	{
-		tiersRouter.GET("", c.listTiers)
-	}
+	// tiersRouter := rootRouter.Group("/tiers")
+	// {
+	// 	tiersRouter.GET("", c.listTiers)
+	// }
 
-	assetsRouter := rootRouter.Group("/assets")
-	{
-		assetsRouter.GET("", c.listAssets)
-		assetsRouter.GET("/:id", c.showAsset)
-		assetsRouter.GET("/:id/launches", c.listAssetLaunches)
-		assetsRouter.GET("/:id/shields", c.listAssetShields)
-		assetsRouter.GET("/:id/baselines", c.listAssetBaselines)
+	// assetsRouter := rootRouter.Group("/assets")
+	// {
+	// 	assetsRouter.GET("", c.listAssets)
+	// 	assetsRouter.GET("/:id", c.showAsset)
+	// 	assetsRouter.GET("/:id/launches", c.listAssetLaunches)
+	// 	assetsRouter.GET("/:id/shields", c.listAssetShields)
+	// 	assetsRouter.GET("/:id/baselines", c.listAssetBaselines)
 
-		assetsRouter.POST("/:id/launches", c.initiateAssetLaunch)
-	}
+	// 	assetsRouter.POST("/:id/launches", c.initiateAssetLaunch)
+	// }
 
-	launchesRouter := rootRouter.Group("/launches")
-	{
-		launchesRouter.GET("", c.listLaunches)
-		launchesRouter.GET("/:id", c.showLaunch)
-	}
+	// launchesRouter := rootRouter.Group("/launches")
+	// {
+	// 	launchesRouter.GET("", c.listLaunches)
+	// 	launchesRouter.GET("/:id", c.showLaunch)
+	// }
 
 	errorsRouter := rootRouter.Group("/errors")
 	{

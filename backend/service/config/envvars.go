@@ -11,6 +11,9 @@ const (
 	environmentReview = "review"
 	environmentTest   = "test"
 	environmentProd   = "prod"
+
+	sqliteFileKey     = "SQLITE_FILE"
+	sqliteFileDefault = "psap.db"
 )
 
 func NewEnvVars() IService {
@@ -26,9 +29,18 @@ func NewEnvVars() IService {
 }
 
 type envVarsService struct {
+	sqliteFile string
 }
 
 func (svc *envVarsService) populateFromEnvVars() {
+	svc.sqliteFile = os.Getenv(sqliteFileKey)
+	if svc.sqliteFile == "" {
+		svc.sqliteFile = sqliteFileDefault
+	}
+}
+
+func (svc *envVarsService) SQLiteFile() string {
+	return svc.sqliteFile
 }
 
 func read(file string) []byte {

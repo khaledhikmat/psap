@@ -12,7 +12,6 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/khaledhikmat/psap/api"
-	"github.com/khaledhikmat/psap/model"
 	"github.com/khaledhikmat/psap/service"
 	"github.com/khaledhikmat/psap/service/lgr"
 	"github.com/khaledhikmat/psap/utils"
@@ -135,7 +134,7 @@ func HTTPServer(canxCtx context.Context, pod string, svcs service.ServicesFactor
 	defer close(eventStream)
 
 	// Setup a router
-	engine, err := setupRouter(canxCtx, svcs, eventStream, nil)
+	engine, err := setupRouter(canxCtx, svcs, eventStream)
 	if err != nil {
 		return err
 	}
@@ -159,7 +158,7 @@ func HTTPServer(canxCtx context.Context, pod string, svcs service.ServicesFactor
 
 	// The only way to exit the main function is to wait for the shutdown
 	// duration
-	timer := time.NewTimer(time.Duration(svcs.CfgSvc.GetModeMaxShutdownTime()) * time.Second)
+	timer := time.NewTimer(time.Duration(5) * time.Second)
 	defer timer.Stop()
 
 	for {
@@ -168,7 +167,7 @@ func HTTPServer(canxCtx context.Context, pod string, svcs service.ServicesFactor
 			// Timer expired, proceed with shutdown
 			lgr.Logger.Info(
 				"http server shutdown waiting period expired. Exiting now",
-				slog.Duration("period", time.Duration(svcs.CfgSvc.GetModeMaxShutdownTime())*time.Second),
+				slog.Duration("period", time.Duration(5)*time.Second),
 			)
 
 			return nil
@@ -179,7 +178,7 @@ func HTTPServer(canxCtx context.Context, pod string, svcs service.ServicesFactor
 	}
 }
 
-func setupRouter(canxCtx context.Context, svcs service.ServicesFactory, eventStream chan<- interface{}, alerterStream chan<- model.AlertData) (*gin.Engine, error) {
+func setupRouter(canxCtx context.Context, svcs service.ServicesFactory, eventStream chan<- interface{}) (*gin.Engine, error) {
 	engine := gin.Default()
 	config := cors.DefaultConfig()
 	config.AllowAllOrigins = true
@@ -193,7 +192,7 @@ func setupRouter(canxCtx context.Context, svcs service.ServicesFactory, eventStr
 
 	// Setup controller to handler routes
 	mainRouter := engine.Group(api.ContextRoot)
-	ctrlr := api.NewController(svcs, eventStream, nil)
+	ctrlr := api.NewController(svcs, eventStream)
 	ctrlr.Routes(mainRouter)
 
 	return engine, nil
@@ -246,12 +245,6 @@ func cancellableGin(ctx context.Context, r *gin.Engine, svcs service.ServicesFac
 					"HTTP Server gin start error...exiting",
 					slog.Any("error", xerrors.New(err.Error())),
 				)
-
-				procEvent(ctx, svcs, model.GenErrEvent(pod, "HTTPServer",
-					model.HighEventSeverity,
-					err,
-					map[string]interface{}{},
-					"HTTP server gin start error"))
 
 				return
 			}

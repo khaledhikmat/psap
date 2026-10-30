@@ -7,15 +7,35 @@ type LaunchCreationRequest struct {
 }
 
 type LaunchCreationResult struct {
+	LaunchID  string
+	Questions int // number of launch questions to answer
+}
+
+type LaunchAnswersSaveRequest struct {
+	LaunchID  string
+	Answers   []model.Answer // QuestionID and Reply are used
+	UpdatedBy string
+}
+
+type LaunchAnswersSaveResult struct {
+	Answered  int
+	Questions int
+}
+
+type LaunchTierCalculationRequest struct {
 	LaunchID string
 }
 
-type LaunchAnswersAnalysisRequest struct {
-	AssetID  string
-	LaunchID string
-	Answers  []model.Answer
-}
-
-type LaunchAnswersAnalysisResult struct {
+type LaunchTierCalculationResult struct {
+	Points int
 	TierID string
+}
+
+type LaunchPersistRequest struct {
+	LaunchID    string
+	TierID      string
+	State       model.LaunchState
+	Reminders   int
+	Warnings    int
+	Escalations int
 }

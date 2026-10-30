@@ -12,7 +12,7 @@ type CustomEvent struct {
 	TargetType        string                 `json:"targetType"`
 	Relationship      string                 `json:"relationship"`
 	Inner             string                 `json:"error"`
-	Severity          EventSeverity          `json:"severity"`
+	Severity          string                 `json:"severity"`
 	Message           string                 `json:"message"`
 	StackTrace        string                 `json:"stackTrace"`
 	SourceAttrs       map[string]interface{} `json:"sourceAttrs"`
@@ -20,7 +20,7 @@ type CustomEvent struct {
 	RelationshipAttrs map[string]interface{} `json:"relationshipAttrs"`
 }
 
-func GenErrEvent(source, sourceType string, severity EventSeverity, err error, attrs map[string]interface{}, messagef string, args ...interface{}) CustomEvent {
+func GenErrEvent(source, sourceType string, severity string, err error, attrs map[string]interface{}, messagef string, args ...interface{}) CustomEvent {
 	return CustomEvent{
 		Source:            source,
 		SourceType:        sourceType,
@@ -134,12 +134,20 @@ type Question struct {
 type Answer struct {
 	ID         string `json:"id" db:"ID"`
 	QuestionID string `json:"questionId" db:"QUESTION_ID"`
+	LaunchID   string `json:"launchId" db:"LAUNCH_ID"`
 	Reply      string `json:"reply" db:"REPLY"` // "" not provided, "YES" or "NO"
 	CreatedAt  string `json:"createdAt" db:"CREATED_AT"`
 	CreatedBy  string `json:"createdBy" db:"CREATED_BY"`
 	UpdatedBy  string `json:"updatedBy" db:"UPDATED_BY"`
 	UpdatedAt  string `json:"updatedAt" db:"UPDATED_AT"`
 }
+
+// Answer replies
+const (
+	UnansweredReply = ""
+	YesReply        = "YES"
+	NoReply         = "NO"
+)
 
 type LaunchState string
 
@@ -149,17 +157,21 @@ const (
 	WaitingForTierApprovalLaunchState LaunchState = "waiting-4-tier-approval"
 	TierValidatedLaunchState          LaunchState = "tier-validated"
 	TimedOutLaunchState               LaunchState = "timedout"
+	CancelledLaunchState              LaunchState = "cancelled" // replaced by a newer launch of the same asset
 )
 
 type Launch struct {
-	ID        string      `json:"id" db:"ID"`
-	AssetID   string      `json:"assetId" db:"ASSET_ID"`
-	TierID    string      `json:"tierId" db:"TIER_ID"`
-	State     LaunchState `json:"state" db:"STATE"`
-	CreatedAt string      `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy string      `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy string      `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt string      `json:"updatedAt" db:"UPDATED_AT"`
+	ID          string      `json:"id" db:"ID"`
+	AssetID     string      `json:"assetId" db:"ASSET_ID"`
+	TierID      string      `json:"tierId" db:"TIER_ID"`
+	State       LaunchState `json:"state" db:"STATE"`
+	Reminders   int         `json:"reminders" db:"REMINDERS"`
+	Warnings    int         `json:"warnings" db:"WARNINGS"`
+	Escalations int         `json:"escalations" db:"ESCALATIONS"`
+	CreatedAt   string      `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string      `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string      `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
 }
 
 type ShieldState string

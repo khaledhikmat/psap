@@ -14,9 +14,12 @@ UI:      http://localhost:8233
 Metrics: http://localhost:57058/metrics
 
 # terminal 2 - flow worker
-go run worker/main.go
+MODE_PROC=flowworker go run .
 
-# terminal 3 - starter. Eventually this an API Layer
-go run main.go happy
+# terminal 3 - starter/test CLI. Eventually this an API Layer
+MODE_PROC=cli go run . help        # list commands
+MODE_PROC=cli go run . happy       # start → submit → finalize → validate
+MODE_PROC=cli go run . relaunch    # relaunch mid-launch cancels the running launch
+MODE_PROC=cli go run . timeout     # reminders/warnings/escalations until timed out (~25s)
 ```
 
