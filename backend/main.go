@@ -25,24 +25,21 @@ import (
 
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/mem"
-	"github.com/shirou/gopsutil/v3/process"
-
 	"github.com/khaledhikmat/psap/mode"
 	"github.com/khaledhikmat/psap/service"
 	"github.com/khaledhikmat/psap/service/config"
 	"github.com/khaledhikmat/psap/service/data"
 	"github.com/khaledhikmat/psap/service/lgr"
 	"github.com/khaledhikmat/psap/utils"
+	"github.com/shirou/gopsutil/cpu"
+	"github.com/shirou/gopsutil/process"
 )
 
 const (
 	// WARNING: this has to be bigger that the mode processor shutdown time
-	waitOnShutdown          = 8 * time.Second
-	tracerRecordingDuration = 20 * time.Second
-	profilerDuration        = 10 * time.Second
-	mainMetricPrefix        = "grp.esg.soi.td.sp.main"
+	waitOnShutdown   = 8 * time.Second
+	profilerDuration = 10 * time.Second
+	mainMetricPrefix = "grp.esg.soi.td.sp.main"
 )
 
 var (
@@ -64,8 +61,10 @@ var (
 
 // Available mode processors
 var modeProcessors = map[string]mode.Processor{
-	"httpserver": mode.HTTPServer,
-	"flowworker": mode.Worker,
+	"httpserver":      mode.HTTPServer,
+	"flowworker":      mode.Worker,
+	"multiflowworker": mode.MultiWorker,
+	"cli":             mode.CLI,
 }
 
 var startTime = time.Now()

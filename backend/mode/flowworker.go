@@ -14,7 +14,7 @@ import (
 )
 
 // Flow worker manager function
-// TODO: launch multiple workers
+// A single worker tuned for concurrency via options (see MultiWorker for the multi-worker variant)
 func Worker(canxCtx context.Context, pod string, svcs service.ServicesFactory) error {
 	c, err := client.Dial(client.Options{})
 	if err != nil {
@@ -22,12 +22,17 @@ func Worker(canxCtx context.Context, pod string, svcs service.ServicesFactory) e
 	}
 	defer c.Close()
 
-	w := worker.New(c, helpers.WorkerQueueName, worker.Options{})
+	w := worker.New(c, helpers.WorkerQueueName, worker.Options{
+		Identity:                               pod + "-worker",
+		MaxConcurrentWorkflowTaskPollers:       4,
+		MaxConcurrentActivityTaskPollers:       4,
+		MaxConcurrentWorkflowTaskExecutionSize: 100,
+		MaxConcurrentActivityExecutionSize:     100,
+	})
 
 	w.RegisterWorkflow(workflows.Launch)
-	w.RegisterActivity(launch.Create)
-	w.RegisterActivity(launch.AnalyzeAnswers)
-	w.RegisterActivity(notification.Notify)
+	w.RegisterActivity(launch.NewActivities(svcs.CfgSvc, svcs.DataSvc))
+	w.RegisterActivity(notification.NewActivities(svcs.CfgSvc, svcs.DataSvc))
 
 	err = w.Run(worker.InterruptCh())
 	if err != nil {

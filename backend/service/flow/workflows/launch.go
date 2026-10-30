@@ -54,6 +54,10 @@ type ValidateTierSignal struct {
 }
 
 func Launch(ctx workflow.Context, request LaunchRequest) (LaunchResult, error) {
+	// nil receiver: only used by Temporal to resolve activity names
+	var launchActs *launchactivities.Activities
+	var notifyActs *notificationactivities.Activities
+
 	// State
 	// These fields ARE the workflow's durable state. They aren't persisted directly —
 	// Temporal reconstructs them by replaying history events (activity completions, signals,
@@ -101,7 +105,7 @@ func Launch(ctx workflow.Context, request LaunchRequest) (LaunchResult, error) {
 
 	// Create Launch
 	var createResult launchactivities.LaunchCreationResult
-	err = workflow.ExecuteActivity(ctx, launchactivities.Create, launchactivities.LaunchCreationRequest{
+	err = workflow.ExecuteActivity(ctx, launchActs.Create, launchactivities.LaunchCreationRequest{
 		AssetID: request.AssetID,
 	}).Get(ctx, &createResult)
 	if err != nil {
@@ -121,7 +125,7 @@ func Launch(ctx workflow.Context, request LaunchRequest) (LaunchResult, error) {
 			answers = signal.Answers
 
 			var answersAnalysisResult launchactivities.LaunchAnswersAnalysisResult
-			err := workflow.ExecuteActivity(ctx, launchactivities.AnalyzeAnswers, launchactivities.LaunchAnswersAnalysisRequest{
+			err := workflow.ExecuteActivity(ctx, launchActs.AnalyzeAnswers, launchactivities.LaunchAnswersAnalysisRequest{
 				AssetID:  request.AssetID,
 				LaunchID: ID,
 				Answers:  answers,
@@ -137,7 +141,7 @@ func Launch(ctx workflow.Context, request LaunchRequest) (LaunchResult, error) {
 			logger.Info("Answers Finalized", "assetID", request.AssetID, "LaunchID", ID)
 			answers = signal.Answers
 			var answersAnalysisResult launchactivities.LaunchAnswersAnalysisResult
-			err := workflow.ExecuteActivity(ctx, launchactivities.AnalyzeAnswers, launchactivities.LaunchAnswersAnalysisRequest{
+			err := workflow.ExecuteActivity(ctx, launchActs.AnalyzeAnswers, launchactivities.LaunchAnswersAnalysisRequest{
 				AssetID:  request.AssetID,
 				LaunchID: ID,
 				Answers:  answers,
@@ -160,7 +164,7 @@ func Launch(ctx workflow.Context, request LaunchRequest) (LaunchResult, error) {
 			if reminders < request.MaxReminders {
 				// Reminder timed out for the first time, notify the reviewer
 				var notifyResult notificationactivities.NotificationResult
-				err := workflow.ExecuteActivity(ctx, notificationactivities.Notify, notificationactivities.NotificationRequest{
+				err := workflow.ExecuteActivity(ctx, notifyActs.Notify, notificationactivities.NotificationRequest{
 					Recipient: request.Reviewer,
 					Message:   "Reminder: please submit your answers",
 				}).Get(ctx, &notifyResult)
@@ -175,7 +179,7 @@ func Launch(ctx workflow.Context, request LaunchRequest) (LaunchResult, error) {
 			if warnings < request.MaxWarnings {
 				// Warning timed out for the first time, notify the reviewer
 				var notifyResult notificationactivities.NotificationResult
-				err := workflow.ExecuteActivity(ctx, notificationactivities.Notify, notificationactivities.NotificationRequest{
+				err := workflow.ExecuteActivity(ctx, notifyActs.Notify, notificationactivities.NotificationRequest{
 					Recipient: request.Reviewer,
 					Message:   "Warning: please submit your answers",
 				}).Get(ctx, &notifyResult)
@@ -190,7 +194,7 @@ func Launch(ctx workflow.Context, request LaunchRequest) (LaunchResult, error) {
 			if escalations < request.MaxEscalations {
 				// Escalation timed out for the first time, notify the reviewer
 				var notifyResult notificationactivities.NotificationResult
-				err := workflow.ExecuteActivity(ctx, notificationactivities.Notify, notificationactivities.NotificationRequest{
+				err := workflow.ExecuteActivity(ctx, notifyActs.Notify, notificationactivities.NotificationRequest{
 					Recipient: request.Reviewer,
 					Message:   "Escalation: please submit your answers",
 				}).Get(ctx, &notifyResult)
@@ -226,26 +230,28 @@ func Launch(ctx workflow.Context, request LaunchRequest) (LaunchResult, error) {
 		if workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
 			// Carry current state forward so it is not reset on the new run
 			return LaunchResult{
-					ID:          ID,
-					AssetID:     request.AssetID,
-					RunningTime: workflow.Now(ctx).Sub(startedAt),
-					State:       state,
-					TierID:      tierID,
-					Reviewer:    request.Reviewer,
-					Answers:     answers,
-					Reminders:   reminders,
-					Warnings:    warnings,
-					Escalations: escalations,
-				}, workflow.NewContinueAsNewError(ctx, Launch, LaunchRequest{
-					AssetID:           request.AssetID,
-					ReminderTimeout:   request.ReminderTimeout,
-					WarningTimeout:    request.WarningTimeout,
-					EscalationTimeout: request.EscalationTimeout,
-				})
+				ID:          ID,
+				AssetID:     request.AssetID,
+				RunningTime: workflow.Now(ctx).Sub(startedAt),
+				State:       state,
+				TierID:      tierID,
+				Reviewer:    request.Reviewer,
+				Answers:     answers,
+				Reminders:   reminders,
+				Warnings:    warnings,
+				Escalations: escalations,
+			}, workflow.NewContinueAsNewError(ctx, Launch, LaunchRequest{
+				AssetID:           request.AssetID,
+				ReminderTimeout:   request.ReminderTimeout,
+				WarningTimeout:    request.WarningTimeout,
+				EscalationTimeout: request.EscalationTimeout,
+			})
 		}
 	}
 
 	logger.Info("Launch completed", "assetID", request.AssetID, "LaunchID", ID)
+
+	//TODO: Final persist....
 
 	return LaunchResult{
 		ID:          ID,
