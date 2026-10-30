@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	httpServerMetricPrefix = "grp.esg.soi.td.sp.http.server"
+	httpServerMetricPrefix = "grp.csa.soi.psap.http.server"
 )
 
 var (

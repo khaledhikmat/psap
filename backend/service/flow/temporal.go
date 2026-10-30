@@ -73,6 +73,10 @@ func NewTemporal(cfgsvc config.IService, datasvc data.IService) IService {
 	}
 }
 
+func (s *service) Finalize() {
+	s.tClient.Close()
+}
+
 func (s *service) InitiateLaunch(ctx context.Context, assetID string) error {
 	asset, err := s.datasvc.RetrieveAssetByID(ctx, assetID)
 	if err != nil {

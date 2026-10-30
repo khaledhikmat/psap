@@ -20,7 +20,7 @@ const (
 )
 
 const (
-	apiMetricPrefix = "grp.esg.soi.td.sp.api"
+	apiMetricPrefix = "grp.csa.soi.psap.api"
 )
 
 var (

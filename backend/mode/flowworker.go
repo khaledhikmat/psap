@@ -2,7 +2,7 @@ package mode
 
 import (
 	"context"
-	"log"
+	"fmt"
 
 	"github.com/khaledhikmat/psap/service"
 	"github.com/khaledhikmat/psap/service/flow/activities/launch"
@@ -18,7 +18,7 @@ import (
 func Worker(canxCtx context.Context, pod string, svcs service.ServicesFactory) error {
 	c, err := client.Dial(client.Options{})
 	if err != nil {
-		log.Fatalln("Unable to create client", err)
+		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 	defer c.Close()
 

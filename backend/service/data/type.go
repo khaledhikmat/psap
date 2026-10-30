@@ -15,6 +15,10 @@ var (
 )
 
 type IService interface {
+	// Finalize releases the service's resources (e.g. closes the database). The service must
+	// not be used afterwards.
+	Finalize()
+
 	NewEvent(ctx context.Context, evt interface{}) error
 
 	NewWorker(ctx context.Context, worker model.Worker) error

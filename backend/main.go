@@ -41,7 +41,7 @@ const (
 	// WARNING: this has to be bigger that the mode processor shutdown time
 	waitOnShutdown   = 8 * time.Second
 	profilerDuration = 10 * time.Second
-	mainMetricPrefix = "grp.esg.soi.td.sp.main"
+	mainMetricPrefix = "grp.csa.soi.psap.main"
 )
 
 var (
@@ -195,6 +195,14 @@ func ensureMetrics() {
 }
 
 func main() {
+	// os.Exit skips deferred calls, so all the work (and every defer) lives in run.
+	os.Exit(run())
+}
+
+// run starts the mode processor selected by MODE_PROC and returns the process exit code:
+// 0 when the mode processor finishes cleanly (or is stopped by SIGINT/SIGTERM), 1 when
+// startup fails or the mode processor returns an error.
+func run() int {
 	ensureMetrics()
 
 	if !metricsInitialized {
@@ -202,7 +210,7 @@ func main() {
 			"unable to initialize metrics",
 			slog.Any("error", xerrors.New("no metrics")),
 		)
-		return
+		return 1
 	}
 
 	rootCtx := context.Background()
@@ -228,7 +236,7 @@ func main() {
 			"setting up OpenTelemetry",
 			slog.Any("error", xerrors.New(err.Error())),
 		)
-		return
+		return 1
 	}
 	defer func() {
 		err := shutdown(rootCtx)
@@ -251,7 +259,7 @@ func main() {
 	modeProc, ok := modeProcessors[modeType]
 	if !ok {
 		lgr.Logger.Error("invalid mode", slog.String("mode", modeType))
-		return
+		return 1
 	}
 
 	// Create the services needed for the mode processor
@@ -260,9 +268,9 @@ func main() {
 	if cfgSvc == nil {
 		lgr.Logger.Error(
 			"unable to instantiate config service",
-			slog.Any("error", xerrors.New(err.Error())),
+			slog.Any("error", xerrors.New("no config service")),
 		)
-		return
+		return 1
 	}
 
 	// data service
@@ -272,8 +280,9 @@ func main() {
 			"unable to instantiate data service",
 			slog.Any("error", xerrors.New("unable to open SQLite database")),
 		)
-		return
+		return 1
 	}
+	defer dataSvc.Finalize()
 
 	// flow service
 	flowSvc := flow.NewTemporal(cfgSvc, dataSvc)
@@ -282,8 +291,11 @@ func main() {
 			"unable to instantiate flow service",
 			slog.Any("error", xerrors.New("unable to connect to Temporal")),
 		)
-		return
+		return 1
 	}
+	// Deferred calls run in reverse order, so the flow service (which uses the data service)
+	// is finalized first.
+	defer flowSvc.Finalize()
 
 	svcs := service.ServicesFactory{
 		CanxCtx: canxCtx,
@@ -295,9 +307,21 @@ func main() {
 	// Run Timestamp as POD
 	ts := fmt.Sprintf("%d", time.Now().UnixMilli())
 
-	// Create mode processor result
-	modeProcResult := make(chan error)
-	defer close(modeProcResult)
+	// Create mode processor result. Buffered, and never closed, so the mode processor can
+	// always deliver its result, even after the shutdown period below has expired.
+	modeProcResult := make(chan error, 1)
+	var modeErr error
+	recordModeResult := func(err error) {
+		if err != nil {
+			lgr.Logger.Info(
+				"stream processor pod mode processor exited",
+				slog.Any("error", xerrors.New(err.Error())),
+			)
+		}
+		if err != nil && !errors.Is(err, context.Canceled) {
+			modeErr = err
+		}
+	}
 
 	// Start the mode processor
 	go func() {
@@ -314,12 +338,7 @@ func main() {
 			goto resume
 
 		case err := <-modeProcResult:
-			if err != nil {
-				lgr.Logger.Info(
-					"stream processor pod mode processor exited",
-					slog.Any("error", xerrors.New(err.Error())),
-				)
-			}
+			recordModeResult(err)
 			goto resume
 		}
 	}
@@ -351,15 +370,13 @@ resume:
 				slog.Duration("period", waitOnShutdown),
 			)
 
-			return
+			if modeErr != nil {
+				return 1
+			}
+			return 0
 
 		case err := <-modeProcResult:
-			if err != nil {
-				lgr.Logger.Info(
-					"stream processor pod mode processor exited",
-					slog.Any("error", xerrors.New(err.Error())),
-				)
-			}
+			recordModeResult(err)
 		}
 	}
 }

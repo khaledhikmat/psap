@@ -62,8 +62,7 @@ type sqliteService struct {
 }
 
 // NewSQLLite opens (creating if needed) the SQLite database named by the config service,
-// brings its schema up to date and seeds empty tables. The database is closed when canxCtx
-// is cancelled.
+// brings its schema up to date and seeds empty tables. Call Finalize to close the database.
 func NewSQLLite(canxCtx context.Context, cfgSvc config.IService) IService {
 	file := "psap.db"
 	if cfgSvc != nil && cfgSvc.SQLiteFile() != "" {
@@ -91,13 +90,17 @@ func NewSQLLite(canxCtx context.Context, cfgSvc config.IService) IService {
 		return nil
 	}
 
-	go func() {
-		<-canxCtx.Done()
-		_ = db.Close()
-	}()
-
 	lgr.Logger.Info("SQLite data service ready", slog.String("file", file))
 	return &sqliteService{db: db}
+}
+
+func (s *sqliteService) Finalize() {
+	if err := s.db.Close(); err != nil {
+		lgr.Logger.Error(
+			"unable to close SQLite database",
+			slog.Any("error", xerrors.New(err.Error())),
+		)
+	}
 }
 
 func migrate(ctx context.Context, db *sqlx.DB) error {

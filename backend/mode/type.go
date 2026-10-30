@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	tracerPrefix = "grp.esg.soi.td.sp.mode"
+	tracerPrefix = "grp.csa.soi.psap.mode"
 )
 
 var (
