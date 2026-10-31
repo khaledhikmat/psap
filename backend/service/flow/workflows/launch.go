@@ -6,6 +6,7 @@ import (
 	"github.com/khaledhikmat/psap/model"
 	launchactivities "github.com/khaledhikmat/psap/service/flow/activities/launch"
 	notificationactivities "github.com/khaledhikmat/psap/service/flow/activities/notification"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -117,6 +118,15 @@ func Launch(ctx workflow.Context, req LaunchRequest) (LaunchResult, error) {
 
 	if err := w.persist(); err != nil {
 		return w.result(), err
+	}
+
+	// Auto-start Shield workflow when tier is validated
+	if w.state == model.TierValidatedLaunchState {
+		w.logger.Info("Tier validated, starting Shield workflow", "assetID", req.AssetID, "LaunchID", w.id)
+		if err := w.startShield(); err != nil {
+			w.logger.Error("Failed to start Shield workflow", "assetID", req.AssetID, "error", err)
+			// Don't fail the launch if Shield fails to start
+		}
 	}
 
 	w.logger.Info("Launch completed", "assetID", req.AssetID, "LaunchID", w.id, "state", w.state, "tierID", w.tierID)
@@ -417,6 +427,38 @@ func (w *launch) continueAsNew() error {
 	next.Warnings = w.warnings
 	next.Escalations = w.escalations
 	return workflow.NewContinueAsNewError(w.ctx, Launch, next)
+}
+
+// startShield initiates the Shield workflow for the asset using the Temporal service.
+func (w *launch) startShield() error {
+	// Execute the InitiateShield workflow using ExecuteChildWorkflow
+	childCtx := workflow.WithChildOptions(w.ctx, workflow.ChildWorkflowOptions{
+		WorkflowID:        ShieldWorkflowID(w.req.AssetID),
+		TaskQueue:         workflow.GetInfo(w.ctx).TaskQueueName,
+		WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+	})
+
+	shieldReq := ShieldRequest{
+		AssetID:           w.req.AssetID,
+		BusinessOwner:     w.req.BusinessOwner,
+		BusinessManager:   w.req.BusinessManager,
+		ReminderTimeout:   60,
+		MaxReminders:      3,
+		WarningTimeout:    300,
+		MaxWarnings:       2,
+		EscalationTimeout: 900,
+		MaxEscalations:    1,
+	}
+
+	future := workflow.ExecuteChildWorkflow(childCtx, Shield, shieldReq)
+	// Don't wait for the child workflow to complete, just start it
+	// Get the child workflow execution to ensure it started
+	var childWE workflow.Execution
+	if err := future.GetChildWorkflowExecution().Get(childCtx, &childWE); err != nil {
+		return err
+	}
+	w.logger.Info("Shield workflow started", "assetID", w.req.AssetID, "shieldWorkflowID", childWE.ID)
+	return nil
 }
 
 func (w *launch) result() LaunchResult {

@@ -132,14 +132,15 @@ type Question struct {
 }
 
 type Answer struct {
-	ID         string `json:"id" db:"ID"`
-	QuestionID string `json:"questionId" db:"QUESTION_ID"`
-	LaunchID   string `json:"launchId" db:"LAUNCH_ID"`
-	Reply      string `json:"reply" db:"REPLY"` // "" not provided, "YES" or "NO"
-	CreatedAt  string `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy  string `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy  string `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt  string `json:"updatedAt" db:"UPDATED_AT"`
+	ID         string  `json:"id" db:"ID"`
+	QuestionID string  `json:"questionId" db:"QUESTION_ID"`
+	LaunchID   *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
+	ShieldID   *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
+	Reply      string  `json:"reply" db:"REPLY"` // "" not provided, "YES" or "NO"
+	CreatedAt  string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy  string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy  string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt  string  `json:"updatedAt" db:"UPDATED_AT"`
 }
 
 // Answer replies
@@ -148,6 +149,18 @@ const (
 	YesReply        = "YES"
 	NoReply         = "NO"
 )
+
+type AnswerHistory struct {
+	ID            string  `json:"id" db:"ID"`
+	AnswerID      string  `json:"answerId" db:"ANSWER_ID"`
+	QuestionID    string  `json:"questionId" db:"QUESTION_ID"`
+	LaunchID      *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
+	ShieldID      *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
+	PreviousReply string  `json:"previousReply" db:"PREVIOUS_REPLY"`
+	NewReply      string  `json:"newReply" db:"NEW_REPLY"`
+	ChangedBy     string  `json:"changedBy" db:"CHANGED_BY"`
+	ChangedAt     string  `json:"changedAt" db:"CHANGED_AT"`
+}
 
 type LaunchState string
 
@@ -174,20 +187,42 @@ type Launch struct {
 	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
 }
 
+type Evidence struct {
+	ID                 string `json:"id" db:"ID"`
+	QuestionCategoryID string `json:"questionCategoryId" db:"QUESTION_CATEGORY_ID"`
+	ShieldID           string `json:"shieldId" db:"SHIELD_ID"`
+	Description        string `json:"description" db:"DESCRIPTION"`
+	URL                string `json:"url" db:"URL"`
+	CreatedAt          string `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy          string `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy          string `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt          string `json:"updatedAt" db:"UPDATED_AT"`
+}
+
 type ShieldState string
 
 const (
-	PendingLaunchShieldState ShieldState = "pending-launch"
+	WaitingForAnswersShieldState  ShieldState = "waiting-4-answers"
+	AnswersSubmittedShieldState   ShieldState = "answers-submitted"
+	WaitingForEvidencesShieldState ShieldState = "waiting-4-evidences"
+	EvidencesSubmittedShieldState ShieldState = "evidences-submitted"
+	CompletedShieldState          ShieldState = "completed"
+	TimedOutShieldState           ShieldState = "timedout"
+	CancelledShieldState          ShieldState = "cancelled" // replaced by a newer shield of the same asset
 )
 
 type Shield struct {
-	ID        string      `json:"id" db:"ID"`
-	AssetID   string      `json:"assetId" db:"ASSET_ID"`
-	State     ShieldState `json:"state" db:"STATE"`
-	CreatedAt string      `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy string      `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy string      `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt string      `json:"updatedAt" db:"UPDATED_AT"`
+	ID          string      `json:"id" db:"ID"`
+	AssetID     string      `json:"assetId" db:"ASSET_ID"`
+	Score       int         `json:"score" db:"SCORE"`
+	State       ShieldState `json:"state" db:"STATE"`
+	Reminders   int         `json:"reminders" db:"REMINDERS"`
+	Warnings    int         `json:"warnings" db:"WARNINGS"`
+	Escalations int         `json:"escalations" db:"ESCALATIONS"`
+	CreatedAt   string      `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string      `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string      `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
 }
 
 type BaselineState string

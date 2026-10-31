@@ -28,15 +28,17 @@ var (
 	questionCategoriesTable = newTable[model.QuestionCategory]("QUESTION_CATEGORIES", "ID")
 	questionsTable          = newTable[model.Question]("QUESTIONS", "ID")
 	answersTable            = newTable[model.Answer]("ANSWERS", "ID")
+	answerHistoryTable      = newTable[model.AnswerHistory]("ANSWER_HISTORY", "ID")
 	launchesTable           = newTable[model.Launch]("LAUNCHES", "ID")
 	shieldsTable            = newTable[model.Shield]("SHIELDS", "ID")
+	evidencesTable          = newTable[model.Evidence]("EVIDENCES", "ID")
 	baselinesTable          = newTable[model.Baseline]("BASELINES", "ID")
 	actionItemsTable        = newTable[model.ActionItem]("ACTION_ITEMS", "ID")
 	tiersTable              = newTable[model.Tier]("TIERS", "ID")
 
 	allTables = []table{
-		workersTable, assetsTable, questionCategoriesTable, questionsTable, answersTable,
-		launchesTable, shieldsTable, baselinesTable, actionItemsTable, tiersTable,
+		workersTable, assetsTable, questionCategoriesTable, questionsTable, answersTable, answerHistoryTable,
+		launchesTable, shieldsTable, evidencesTable, baselinesTable, actionItemsTable, tiersTable,
 	}
 )
 
@@ -49,9 +51,15 @@ var schemaExtras = []string{
 	`CREATE INDEX IF NOT EXISTS ASSETS_NAME_IDX ON ASSETS (ASSET_NAME)`,
 	`CREATE INDEX IF NOT EXISTS QUESTION_CATEGORIES_TYPE_IDX ON QUESTION_CATEGORIES (TYPE)`,
 	`CREATE INDEX IF NOT EXISTS QUESTIONS_CATEGORY_IDX ON QUESTIONS (CATEGORY_ID)`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS ANSWERS_LAUNCH_QUESTION_IDX ON ANSWERS (LAUNCH_ID, QUESTION_ID)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS ANSWERS_LAUNCH_QUESTION_IDX ON ANSWERS (LAUNCH_ID, QUESTION_ID) WHERE LAUNCH_ID IS NOT NULL`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS ANSWERS_SHIELD_QUESTION_IDX ON ANSWERS (SHIELD_ID, QUESTION_ID) WHERE SHIELD_ID IS NOT NULL`,
+	`CREATE INDEX IF NOT EXISTS ANSWER_HISTORY_ANSWER_IDX ON ANSWER_HISTORY (ANSWER_ID)`,
+	`CREATE INDEX IF NOT EXISTS ANSWER_HISTORY_LAUNCH_IDX ON ANSWER_HISTORY (LAUNCH_ID) WHERE LAUNCH_ID IS NOT NULL`,
+	`CREATE INDEX IF NOT EXISTS ANSWER_HISTORY_SHIELD_IDX ON ANSWER_HISTORY (SHIELD_ID) WHERE SHIELD_ID IS NOT NULL`,
 	`CREATE INDEX IF NOT EXISTS LAUNCHES_ASSET_IDX ON LAUNCHES (ASSET_ID)`,
 	`CREATE INDEX IF NOT EXISTS SHIELDS_ASSET_IDX ON SHIELDS (ASSET_ID)`,
+	`CREATE INDEX IF NOT EXISTS EVIDENCES_SHIELD_IDX ON EVIDENCES (SHIELD_ID)`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS EVIDENCES_SHIELD_CATEGORY_IDX ON EVIDENCES (SHIELD_ID, QUESTION_CATEGORY_ID)`,
 	`CREATE INDEX IF NOT EXISTS BASELINES_ASSET_IDX ON BASELINES (ASSET_ID)`,
 	`CREATE INDEX IF NOT EXISTS ACTION_ITEMS_BASELINE_IDX ON ACTION_ITEMS (BASELINE_ID)`,
 	`CREATE INDEX IF NOT EXISTS TIERS_POINTS_IDX ON TIERS (FROM_POINT, TO_POINT)`,

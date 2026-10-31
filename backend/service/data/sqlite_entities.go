@@ -2,7 +2,9 @@ package data
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/khaledhikmat/psap/model"
@@ -119,6 +121,10 @@ func (s *sqliteService) RetrieveAnswersByLaunchID(ctx context.Context, launchID 
 	return listRows[model.Answer](ctx, s.db, answersTable, "LAUNCH_ID = ?", launchID)
 }
 
+func (s *sqliteService) RetrieveAnswersByShieldID(ctx context.Context, shieldID string) ([]model.Answer, error) {
+	return listRows[model.Answer](ctx, s.db, answersTable, "SHIELD_ID = ?", shieldID)
+}
+
 func (s *sqliteService) RetrieveAnswerByID(ctx context.Context, id string) (model.Answer, error) {
 	return getRow[model.Answer](ctx, s.db, answersTable, "ID = ?", id)
 }
@@ -126,12 +132,51 @@ func (s *sqliteService) RetrieveAnswerByID(ctx context.Context, id string) (mode
 func (s *sqliteService) UpdateAnswers(ctx context.Context, answers []model.Answer) error {
 	return s.withTx(ctx, func(tx *sqlx.Tx) error {
 		for _, a := range answers {
+			// Retrieve current value before update for history
+			current, err := getRow[model.Answer](ctx, tx, answersTable, "ID = ?", a.ID)
+			if err != nil && !errors.Is(err, ErrNotFound) {
+				return err
+			}
+
+			// Create history record if reply changed
+			if err == nil && current.Reply != a.Reply {
+				history := model.AnswerHistory{
+					ID:            a.ID + "-" + time.Now().UTC().Format("20060102150405.000000"),
+					AnswerID:      a.ID,
+					QuestionID:    a.QuestionID,
+					LaunchID:      a.LaunchID,
+					ShieldID:      a.ShieldID,
+					PreviousReply: current.Reply,
+					NewReply:      a.Reply,
+					ChangedBy:     a.UpdatedBy,
+					ChangedAt:     time.Now().UTC().Format(time.RFC3339),
+				}
+				if err := insertRow(ctx, tx, answerHistoryTable, history); err != nil {
+					return err
+				}
+			}
+
+			// Update the answer
 			if err := updateRow(ctx, tx, answersTable, a); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// AnswerHistory
+
+func (s *sqliteService) RetrieveAnswerHistoryByAnswerID(ctx context.Context, answerID string) ([]model.AnswerHistory, error) {
+	return listRows[model.AnswerHistory](ctx, s.db, answerHistoryTable, "ANSWER_ID = ? ORDER BY CHANGED_AT DESC", answerID)
+}
+
+func (s *sqliteService) RetrieveAnswerHistoryByLaunchID(ctx context.Context, launchID string) ([]model.AnswerHistory, error) {
+	return listRows[model.AnswerHistory](ctx, s.db, answerHistoryTable, "LAUNCH_ID = ? ORDER BY CHANGED_AT DESC", launchID)
+}
+
+func (s *sqliteService) RetrieveAnswerHistoryByShieldID(ctx context.Context, shieldID string) ([]model.AnswerHistory, error) {
+	return listRows[model.AnswerHistory](ctx, s.db, answerHistoryTable, "SHIELD_ID = ? ORDER BY CHANGED_AT DESC", shieldID)
 }
 
 // Launches
@@ -176,6 +221,38 @@ func (s *sqliteService) RetrieveShieldByID(ctx context.Context, id string) (mode
 
 func (s *sqliteService) UpdateShield(ctx context.Context, shield model.Shield) error {
 	return updateRow(ctx, s.db, shieldsTable, shield)
+}
+
+// Evidences
+
+func (s *sqliteService) NewEvidences(ctx context.Context, evidences []model.Evidence) error {
+	return s.withTx(ctx, func(tx *sqlx.Tx) error {
+		for _, e := range evidences {
+			if err := insertRow(ctx, tx, evidencesTable, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *sqliteService) RetrieveEvidencesByShieldID(ctx context.Context, shieldID string) ([]model.Evidence, error) {
+	return listRows[model.Evidence](ctx, s.db, evidencesTable, "SHIELD_ID = ?", shieldID)
+}
+
+func (s *sqliteService) RetrieveEvidenceByID(ctx context.Context, id string) (model.Evidence, error) {
+	return getRow[model.Evidence](ctx, s.db, evidencesTable, "ID = ?", id)
+}
+
+func (s *sqliteService) UpdateEvidences(ctx context.Context, evidences []model.Evidence) error {
+	return s.withTx(ctx, func(tx *sqlx.Tx) error {
+		for _, e := range evidences {
+			if err := updateRow(ctx, tx, evidencesTable, e); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // Baselines

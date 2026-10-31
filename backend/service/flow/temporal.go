@@ -11,6 +11,7 @@ import (
 	"github.com/khaledhikmat/psap/service/config"
 	"github.com/khaledhikmat/psap/service/data"
 	launchactivities "github.com/khaledhikmat/psap/service/flow/activities/launch"
+	shieldactivities "github.com/khaledhikmat/psap/service/flow/activities/shield"
 	"github.com/khaledhikmat/psap/service/flow/helpers"
 	"github.com/khaledhikmat/psap/service/flow/workflows"
 	"github.com/khaledhikmat/psap/service/lgr"
@@ -33,6 +34,12 @@ var (
 	ErrInvalidAnswer = xerrors.New("invalid answer")
 	// ErrInvalidTier is returned when validating a launch with a tier that does not exist.
 	ErrInvalidTier = xerrors.New("invalid tier")
+
+	// ErrShieldInProgress is returned by InitiateShield when a concurrent InitiateShield for the
+	// same asset started its shield first.
+	ErrShieldInProgress = xerrors.New("asset shield already in progress for this asset")
+	// ErrInvalidShieldState is returned when a shield step is attempted in the wrong state.
+	ErrInvalidShieldState = xerrors.New("shield is not in a state that allows this step")
 )
 
 // Launch defaults (timeouts in seconds).
@@ -47,6 +54,19 @@ const (
 
 	// How long InitiateLaunch waits for a replaced launch to stop before terminating it.
 	launchCancelTimeout = 30 * time.Second
+)
+
+// Shield defaults (timeouts in seconds).
+const (
+	shieldReminderTimeout   = 60
+	shieldMaxReminders      = 3
+	shieldWarningTimeout    = 300
+	shieldMaxWarnings       = 2
+	shieldEscalationTimeout = 900
+	shieldMaxEscalations    = 1
+
+	// How long InitiateShield waits for a replaced shield to stop before terminating it.
+	shieldCancelTimeout = 30 * time.Second
 )
 
 type service struct {
@@ -327,6 +347,214 @@ func (s *service) signal(ctx context.Context, assetID string, signalName string,
 	if err != nil {
 		lgr.Logger.Error(
 			"Unable to signal workflow",
+			slog.String("signal", signalName),
+			slog.Any("error", xerrors.New(err.Error())),
+		)
+		return err
+	}
+	return nil
+}
+
+// Shield methods
+
+// InitiateShield starts a Shield workflow for an asset, or replaces its running shield if any.
+// If there's a running shield, it's cancelled and a fresh shield starts from scratch.
+func (s *service) InitiateShield(ctx context.Context, assetID string) error {
+	asset, err := s.datasvc.RetrieveAssetByID(ctx, assetID)
+	if err != nil {
+		return err
+	}
+	if asset.BusinessOwnerID == nil || asset.BusinessManagerID == nil {
+		return fmt.Errorf("asset %s needs a business owner and a business manager before it can be shielded", assetID)
+	}
+
+	// Reshielding replaces the asset's running shield, if any.
+	if err := s.cancelRunningShield(ctx, asset); err != nil {
+		return err
+	}
+
+	// Only one shield per asset may run at a time.
+	workflowID := workflows.ShieldWorkflowID(assetID)
+	options := client.StartWorkflowOptions{
+		ID:                                       workflowID,
+		TaskQueue:                                helpers.WorkerQueueName,
+		WorkflowIDConflictPolicy:                 enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL,
+		WorkflowExecutionErrorWhenAlreadyStarted: true,
+	}
+
+	we, err := s.tClient.ExecuteWorkflow(ctx, options, workflows.Shield, workflows.ShieldRequest{
+		AssetID:           assetID,
+		BusinessOwner:     *asset.BusinessOwnerID,
+		BusinessManager:   *asset.BusinessManagerID,
+		ReminderTimeout:   shieldReminderTimeout,
+		MaxReminders:      shieldMaxReminders,
+		WarningTimeout:    shieldWarningTimeout,
+		MaxWarnings:       shieldMaxWarnings,
+		EscalationTimeout: shieldEscalationTimeout,
+		MaxEscalations:    shieldMaxEscalations,
+	})
+
+	var alreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
+	if errors.As(err, &alreadyStarted) {
+		return ErrShieldInProgress
+	}
+	if err != nil {
+		lgr.Logger.Error(
+			"Unable to start workflow",
+			slog.Any("error", xerrors.New(err.Error())),
+		)
+		return err
+	}
+	lgr.Logger.Info("Shield workflow started", slog.String("WorkflowID", we.GetID()), slog.String("RunID", we.GetRunID()))
+	return nil
+}
+
+// cancelRunningShield cancels the asset's running shield workflow, if any, and waits for it
+// to stop. It terminates the shield if cancellation times out.
+func (s *service) cancelRunningShield(ctx context.Context, asset model.Asset) error {
+	workflowID := workflows.ShieldWorkflowID(asset.ID)
+	var notFound *serviceerror.NotFound
+	desc, err := s.tClient.DescribeWorkflowExecution(ctx, workflowID, "")
+	if errors.As(err, &notFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if desc.GetWorkflowExecutionInfo().GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+		return nil
+	}
+
+	shieldID := ""
+	if asset.LastShieldID != nil {
+		shieldID = *asset.LastShieldID
+	}
+	lgr.Logger.Info("Cancelling running shield", slog.String("WorkflowID", workflowID), slog.String("ShieldID", shieldID))
+	if err := s.tClient.CancelWorkflow(ctx, workflowID, ""); err != nil {
+		return err
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, shieldCancelTimeout)
+	defer cancel()
+	err = s.tClient.GetWorkflow(waitCtx, workflowID, "").Get(waitCtx, nil)
+	var cancelled *temporal.CanceledError
+	if err == nil || errors.As(err, &cancelled) {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if waitCtx.Err() == nil {
+		return nil
+	}
+
+	lgr.Logger.Warn("Shield did not stop after cancel; terminating", slog.String("WorkflowID", workflowID))
+	err = s.tClient.TerminateWorkflow(ctx, workflowID, "", "reshielded; cancellation timed out")
+	if err != nil && !errors.As(err, &notFound) {
+		return err
+	}
+	// Mark the cancelled shield as cancelled
+	if asset.LastShieldID == nil {
+		return nil
+	}
+	shield, err := s.datasvc.RetrieveShieldByID(ctx, *asset.LastShieldID)
+	if errors.Is(err, data.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	shield.State = model.CancelledShieldState
+	shield.UpdatedBy = "shield-service"
+	return s.datasvc.UpdateShield(ctx, shield)
+}
+
+// QueryShield queries the shield workflow for its current state and returns it as a Shield.
+func (s *service) QueryShield(ctx context.Context, assetID string) (model.Shield, error) {
+	result, err := s.queryShield(ctx, assetID)
+	if err != nil {
+		return model.Shield{}, err
+	}
+	return model.Shield{
+		ID:          result.ID,
+		AssetID:     result.AssetID,
+		Score:       result.Score,
+		State:       result.State,
+		Reminders:   result.Reminders,
+		Warnings:    result.Warnings,
+		Escalations: result.Escalations,
+	}, nil
+}
+
+// SubmitShieldAnswers sends answers to the shield workflow.
+func (s *service) SubmitShieldAnswers(ctx context.Context, assetID string, answers map[string]string) error {
+	return s.signalShield(ctx, assetID, workflows.ShieldSubmitAnswersSignalName, workflows.SubmitAnswersShieldSignal{
+		Answers: answers,
+	})
+}
+
+// FinalizeShieldAnswers sends final answers and locks the shield answers.
+func (s *service) FinalizeShieldAnswers(ctx context.Context, assetID string, answers map[string]string) error {
+	return s.signalShield(ctx, assetID, workflows.ShieldFinalizeAnswersSignalName, workflows.SubmitAnswersShieldSignal{
+		Answers: answers,
+	})
+}
+
+// SubmitShieldEvidences sends evidences to the shield workflow.
+func (s *service) SubmitShieldEvidences(ctx context.Context, assetID string, evidences map[string]model.Evidence) error {
+	evidData := make(map[string]shieldactivities.ShieldEvidenceData)
+	for catID, evid := range evidences {
+		evidData[catID] = shieldactivities.ShieldEvidenceData{
+			Description: evid.Description,
+			URL:         evid.URL,
+		}
+	}
+	return s.signalShield(ctx, assetID, workflows.ShieldSubmitEvidencesSignalName, workflows.SubmitEvidencesShieldSignal{
+		Evidences: evidData,
+	})
+}
+
+// FinalizeShieldEvidences sends final evidences and locks them.
+func (s *service) FinalizeShieldEvidences(ctx context.Context, assetID string, evidences map[string]model.Evidence) error {
+	evidData := make(map[string]shieldactivities.ShieldEvidenceData)
+	for catID, evid := range evidences {
+		evidData[catID] = shieldactivities.ShieldEvidenceData{
+			Description: evid.Description,
+			URL:         evid.URL,
+		}
+	}
+	return s.signalShield(ctx, assetID, workflows.ShieldFinalizeEvidencesSignalName, workflows.SubmitEvidencesShieldSignal{
+		Evidences: evidData,
+	})
+}
+
+// queryShield queries the workflow's current state.
+func (s *service) queryShield(ctx context.Context, assetID string) (workflows.ShieldResult, error) {
+	var result workflows.ShieldResult
+	val, err := s.tClient.QueryWorkflow(ctx, workflows.ShieldWorkflowID(assetID), "", workflows.ShieldStateQueryName)
+	if err != nil {
+		lgr.Logger.Error(
+			"Unable to query shield workflow",
+			slog.Any("error", xerrors.New(err.Error())),
+		)
+		return result, err
+	}
+	if err := val.Get(&result); err != nil {
+		lgr.Logger.Error(
+			"Unable to decode shield workflow query result",
+			slog.Any("error", xerrors.New(err.Error())),
+		)
+		return result, err
+	}
+	return result, nil
+}
+
+// signalShield sends a signal to a shield workflow.
+func (s *service) signalShield(ctx context.Context, assetID string, signalName string, arg interface{}) error {
+	err := s.tClient.SignalWorkflow(ctx, workflows.ShieldWorkflowID(assetID), "", signalName, arg)
+	if err != nil {
+		lgr.Logger.Error(
+			"Unable to signal shield workflow",
 			slog.String("signal", signalName),
 			slog.Any("error", xerrors.New(err.Error())),
 		)

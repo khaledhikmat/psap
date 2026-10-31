@@ -49,8 +49,14 @@ type IService interface {
 	// NewAnswers and UpdateAnswers apply all answers in a single transaction.
 	NewAnswers(ctx context.Context, answers []model.Answer) error
 	RetrieveAnswersByLaunchID(ctx context.Context, launchID string) ([]model.Answer, error)
+	RetrieveAnswersByShieldID(ctx context.Context, shieldID string) ([]model.Answer, error)
 	RetrieveAnswerByID(ctx context.Context, id string) (model.Answer, error)
 	UpdateAnswers(ctx context.Context, answers []model.Answer) error
+
+	// AnswerHistory tracks all changes to answers for audit trail
+	RetrieveAnswerHistoryByAnswerID(ctx context.Context, answerID string) ([]model.AnswerHistory, error)
+	RetrieveAnswerHistoryByLaunchID(ctx context.Context, launchID string) ([]model.AnswerHistory, error)
+	RetrieveAnswerHistoryByShieldID(ctx context.Context, shieldID string) ([]model.AnswerHistory, error)
 
 	NewLaunch(ctx context.Context, launch model.Launch) error
 	RetrieveLaunches(ctx context.Context) ([]model.Launch, error)
@@ -63,6 +69,12 @@ type IService interface {
 	RetrieveShieldsByAssetID(ctx context.Context, assetID string) ([]model.Shield, error)
 	RetrieveShieldByID(ctx context.Context, id string) (model.Shield, error)
 	UpdateShield(ctx context.Context, shield model.Shield) error
+
+	// NewEvidences and UpdateEvidences apply all evidences in a single transaction.
+	NewEvidences(ctx context.Context, evidences []model.Evidence) error
+	RetrieveEvidencesByShieldID(ctx context.Context, shieldID string) ([]model.Evidence, error)
+	RetrieveEvidenceByID(ctx context.Context, id string) (model.Evidence, error)
+	UpdateEvidences(ctx context.Context, evidences []model.Evidence) error
 
 	NewBaseline(ctx context.Context, baseline model.Baseline) error
 	RetrieveBaselines(ctx context.Context) ([]model.Baseline, error)

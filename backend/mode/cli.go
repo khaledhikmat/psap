@@ -19,17 +19,22 @@ import (
 	"go.temporal.io/sdk/client"
 )
 
-const cliUsage = `Launch workflow starter / test CLI. Run a flowworker in another terminal first.
+const cliUsage = `Launch and Shield workflow starter / test CLI. Run a flowworker in another terminal first.
 
 Usage: MODE_PROC=cli go run . <command> [args]
 
 Data:
   assets                                  list assets with their business owner and manager
   questions                               list launch questions with their IDs and weights
+  shield-questions                        list shield questions with their IDs and weights
   tiers                                   list tiers and their point ranges
   answers  <assetID>                      list the answers of the asset's current launch
+  shield-answers <assetID>                list the answers of the asset's current shield
+  evidences <assetID>                     list the evidences of the asset's current shield
+  answer-history <assetID>                list answer change history for the asset's current launch
+  shield-answer-history <assetID>         list answer change history for the asset's current shield
 
-Single steps:
+Launch commands:
   start    <assetID>                      start a launch
   query    <assetID>                      print the launch's current state
   submit   <assetID> questionID=yes|no…   submit (partial) answers
@@ -37,6 +42,15 @@ Single steps:
                                           (unanswered questions count as NO)
   validate <assetID> [tierID]             accept the calculated tier, or override it
   wait     <assetID>                      block until the launch completes, print result
+
+Shield commands:
+  shield-start <assetID>                  start a shield
+  shield-query <assetID>                  print the shield's current state
+  shield-submit-answers <assetID> questionID=yes|no…   submit (partial) shield answers
+  shield-finalize-answers <assetID> [questionID=yes|no…] finalize shield answers
+  shield-submit-evidences <assetID> categoryID=desc:url… submit (partial) evidences
+  shield-finalize-evidences <assetID> [categoryID=desc:url…] finalize evidences
+  shield-wait <assetID>                   block until the shield completes, print result
 
 Scenarios (assetID optional, defaults to the first asset):
   happy     [assetID]  start → partial submit → finalize → validate, checking points, tier and
@@ -46,6 +60,7 @@ Scenarios (assetID optional, defaults to the first asset):
                        completed launch works too
   timeout   [assetID]  start with short timeouts and watch reminders, warnings and
                        escalations fire until the launch times out (~25s)
+  shield-happy [assetID] start shield → submit answers → submit evidences → finalize both
 `
 
 // strVal safely dereferences a string pointer, returning empty string if nil
@@ -98,6 +113,8 @@ func (c *launchCLI) run(cmd string, args []string) error {
 		return c.listAssets()
 	case "questions":
 		return c.listQuestions()
+	case "shield-questions":
+		return c.listShieldQuestions()
 	case "tiers":
 		return c.listTiers()
 	case "answers":
@@ -106,6 +123,30 @@ func (c *launchCLI) run(cmd string, args []string) error {
 			return err
 		}
 		return c.listAnswers(asset)
+	case "shield-answers":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		return c.listShieldAnswers(asset)
+	case "evidences":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		return c.listEvidences(asset)
+	case "answer-history":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		return c.listAnswerHistory(asset)
+	case "shield-answer-history":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		return c.listShieldAnswerHistory(asset)
 	case "start":
 		asset, err := argAt(args, 0, "assetID")
 		if err != nil {
@@ -152,7 +193,73 @@ func (c *launchCLI) run(cmd string, args []string) error {
 		}
 		_, err = c.wait(asset)
 		return err
-	case "happy", "relaunch", "timeout":
+	case "shield-start":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		return c.shieldStart(asset)
+	case "shield-query":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		_, err = c.shieldQuery(asset)
+		return err
+	case "shield-submit-answers":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		answers, err := parseAnswersMap(args[1:])
+		if err != nil {
+			return err
+		}
+		if len(answers) == 0 {
+			return errors.New("missing questionID=yes|no answers")
+		}
+		return c.shieldSubmitAnswers(asset, answers)
+	case "shield-finalize-answers":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		answers, err := parseAnswersMap(args[1:])
+		if err != nil {
+			return err
+		}
+		return c.shieldFinalizeAnswers(asset, answers)
+	case "shield-submit-evidences":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		evidences, err := parseEvidences(args[1:])
+		if err != nil {
+			return err
+		}
+		if len(evidences) == 0 {
+			return errors.New("missing categoryID=description:url evidences")
+		}
+		return c.shieldSubmitEvidences(asset, evidences)
+	case "shield-finalize-evidences":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		evidences, err := parseEvidences(args[1:])
+		if err != nil {
+			return err
+		}
+		return c.shieldFinalizeEvidences(asset, evidences)
+	case "shield-wait":
+		asset, err := argAt(args, 0, "assetID")
+		if err != nil {
+			return err
+		}
+		_, err = c.shieldWait(asset)
+		return err
+	case "happy", "relaunch", "timeout", "shield-happy":
 		asset, err := c.assetOrFirst(args)
 		if err != nil {
 			return err
@@ -162,8 +269,10 @@ func (c *launchCLI) run(cmd string, args []string) error {
 			return c.happyScenario(asset)
 		case "relaunch":
 			return c.relaunchScenario(asset)
-		default:
+		case "timeout":
 			return c.timeoutScenario(asset)
+		default:
+			return c.shieldHappyScenario(asset)
 		}
 	default:
 		fmt.Print(cliUsage)
@@ -458,6 +567,119 @@ func (c *launchCLI) timeoutScenario(asset string) error {
 	return nil
 }
 
+// shieldHappyScenario tests the Shield workflow end-to-end by submitting answers and evidences.
+func (c *launchCLI) shieldHappyScenario(asset string) error {
+	fmt.Printf("== shield happy path: asset %s\n", asset)
+	questions, err := c.data.RetrieveQuestionsByCategoryType(c.ctx, model.ShieldQuestionCategory)
+	if err != nil {
+		return err
+	}
+	categories, err := c.data.RetrieveQuestionCategoriesByType(c.ctx, model.ShieldQuestionCategory)
+	if err != nil {
+		return err
+	}
+	if len(questions) < 3 {
+		return fmt.Errorf("need at least 3 shield questions, have %d", len(questions))
+	}
+	if len(categories) < 2 {
+		return fmt.Errorf("need at least 2 shield categories, have %d", len(categories))
+	}
+
+	if err := c.shieldStart(asset); err != nil {
+		return err
+	}
+	r, err := c.waitForShield(asset, fmt.Sprintf("waiting for answers to %d questions", len(questions)), func(r workflows.ShieldResult) bool {
+		return r.State == model.WaitingForAnswersShieldState && r.Questions == len(questions)
+	})
+	if err != nil {
+		return err
+	}
+	shieldID := r.ID
+
+	// Submit partial answers (first half YES, leave rest for finalize)
+	half := len(questions) / 2
+	partialAnswers := make(map[string]string)
+	for i := 0; i < half; i++ {
+		partialAnswers[questions[i].ID] = "yes"
+	}
+	if err := c.shieldSubmitAnswers(asset, partialAnswers); err != nil {
+		return err
+	}
+	if _, err := c.waitForShield(asset, fmt.Sprintf("%d answered", half), func(r workflows.ShieldResult) bool {
+		return r.Answered == half && r.State == model.WaitingForAnswersShieldState
+	}); err != nil {
+		return err
+	}
+
+	// Finalize answers with remaining questions as NO
+	remainingAnswers := make(map[string]string)
+	for i := half; i < len(questions)-1; i++ {
+		remainingAnswers[questions[i].ID] = "no"
+	}
+	if err := c.shieldFinalizeAnswers(asset, remainingAnswers); err != nil {
+		return err
+	}
+	if _, err := c.waitForShield(asset, "answers finalized, waiting for evidences", func(r workflows.ShieldResult) bool {
+		return r.State == model.WaitingForEvidencesShieldState
+	}); err != nil {
+		return err
+	}
+
+	// Submit partial evidences (first category)
+	partialEvidences := map[string]model.Evidence{
+		categories[0].ID: {
+			Description: "Test evidence 1",
+			URL:         "https://example.com/evidence1",
+		},
+	}
+	if err := c.shieldSubmitEvidences(asset, partialEvidences); err != nil {
+		return err
+	}
+	if _, err := c.waitForShield(asset, "1 evidence submitted", func(r workflows.ShieldResult) bool {
+		return r.EvidencesCount == 1 && r.State == model.WaitingForEvidencesShieldState
+	}); err != nil {
+		return err
+	}
+
+	// Finalize evidences with remaining categories
+	remainingEvidences := make(map[string]model.Evidence)
+	for i := 1; i < len(categories); i++ {
+		remainingEvidences[categories[i].ID] = model.Evidence{
+			Description: fmt.Sprintf("Test evidence %d", i+1),
+			URL:         fmt.Sprintf("https://example.com/evidence%d", i+1),
+		}
+	}
+	if err := c.shieldFinalizeEvidences(asset, remainingEvidences); err != nil {
+		return err
+	}
+
+	// Wait for completion and check score
+	res, err := c.shieldWait(asset)
+	if err != nil {
+		return err
+	}
+	if res.State != model.CompletedShieldState {
+		return fmt.Errorf("expected state %s, got %s", model.CompletedShieldState, res.State)
+	}
+	fmt.Printf("  ✓ shield completed with score=%d\n", res.Score)
+
+	// Verify asset is now shielded
+	a, err := c.data.RetrieveAssetByID(c.ctx, asset)
+	if err != nil {
+		return err
+	}
+	if a.State != model.ShieldedAssetState {
+		return fmt.Errorf("expected asset state %s, got %s", model.ShieldedAssetState, a.State)
+	}
+	if strVal(a.LastShieldID) != shieldID {
+		return fmt.Errorf("expected LastShieldID=%s, got %s", shieldID, strVal(a.LastShieldID))
+	}
+	fmt.Printf("  ✓ asset %s: state=%s lastShield=%s\n", asset, a.State, strVal(a.LastShieldID))
+
+	fmt.Println("✓ shield happy path passed")
+	return nil
+}
+
 // Data commands
 
 func (c *launchCLI) listAssets() error {
@@ -522,6 +744,123 @@ func (c *launchCLI) listAnswers(asset string) error {
 			reply = "-"
 		}
 		fmt.Printf("  %-26s %s\n", ans.QuestionID, reply)
+	}
+	return nil
+}
+
+func (c *launchCLI) listShieldQuestions() error {
+	categories, err := c.data.RetrieveQuestionCategoriesByType(c.ctx, model.ShieldQuestionCategory)
+	if err != nil {
+		return err
+	}
+	total := 0
+	for _, cat := range categories {
+		fmt.Printf("%s — %s\n", cat.ID, cat.Title)
+		questions, err := c.data.RetrieveQuestionsByCategoryID(c.ctx, cat.ID)
+		if err != nil {
+			return err
+		}
+		for _, q := range questions {
+			fmt.Printf("  %-26s w=%d  %s\n", q.ID, q.Weight, q.Text)
+			total += q.Weight
+		}
+	}
+	fmt.Printf("total weight: %d\n", total)
+	return nil
+}
+
+func (c *launchCLI) listShieldAnswers(asset string) error {
+	a, err := c.data.RetrieveAssetByID(c.ctx, asset)
+	if err != nil {
+		return err
+	}
+	if a.LastShieldID == nil || *a.LastShieldID == "" {
+		return fmt.Errorf("asset %s has no shield", asset)
+	}
+	answers, err := c.data.RetrieveAnswersByShieldID(c.ctx, *a.LastShieldID)
+	if err != nil {
+		return err
+	}
+	for _, ans := range answers {
+		reply := ans.Reply
+		if reply == model.UnansweredReply {
+			reply = "-"
+		}
+		fmt.Printf("  %-26s %s\n", ans.QuestionID, reply)
+	}
+	return nil
+}
+
+func (c *launchCLI) listEvidences(asset string) error {
+	a, err := c.data.RetrieveAssetByID(c.ctx, asset)
+	if err != nil {
+		return err
+	}
+	if a.LastShieldID == nil || *a.LastShieldID == "" {
+		return fmt.Errorf("asset %s has no shield", asset)
+	}
+	evidences, err := c.data.RetrieveEvidencesByShieldID(c.ctx, *a.LastShieldID)
+	if err != nil {
+		return err
+	}
+	for _, evid := range evidences {
+		desc := evid.Description
+		if desc == "" {
+			desc = "-"
+		}
+		url := evid.URL
+		if url == "" {
+			url = "-"
+		}
+		fmt.Printf("  %-26s desc=%-30s url=%s\n", evid.QuestionCategoryID, desc, url)
+	}
+	return nil
+}
+
+func (c *launchCLI) listAnswerHistory(asset string) error {
+	a, err := c.data.RetrieveAssetByID(c.ctx, asset)
+	if err != nil {
+		return err
+	}
+	if a.LastLaunchID == nil || *a.LastLaunchID == "" {
+		return fmt.Errorf("asset %s has not been launched", asset)
+	}
+	history, err := c.data.RetrieveAnswerHistoryByLaunchID(c.ctx, *a.LastLaunchID)
+	if err != nil {
+		return err
+	}
+	if len(history) == 0 {
+		fmt.Println("  No answer changes recorded")
+		return nil
+	}
+	fmt.Printf("  Answer change history for launch %s:\n", *a.LastLaunchID)
+	for _, h := range history {
+		fmt.Printf("    %-26s %-12s → %-12s changed by %-20s at %s\n",
+			h.QuestionID, h.PreviousReply, h.NewReply, h.ChangedBy, h.ChangedAt)
+	}
+	return nil
+}
+
+func (c *launchCLI) listShieldAnswerHistory(asset string) error {
+	a, err := c.data.RetrieveAssetByID(c.ctx, asset)
+	if err != nil {
+		return err
+	}
+	if a.LastShieldID == nil || *a.LastShieldID == "" {
+		return fmt.Errorf("asset %s has no shield", asset)
+	}
+	history, err := c.data.RetrieveAnswerHistoryByShieldID(c.ctx, *a.LastShieldID)
+	if err != nil {
+		return err
+	}
+	if len(history) == 0 {
+		fmt.Println("  No answer changes recorded")
+		return nil
+	}
+	fmt.Printf("  Answer change history for shield %s:\n", *a.LastShieldID)
+	for _, h := range history {
+		fmt.Printf("    %-26s %-12s → %-12s changed by %-20s at %s\n",
+			h.QuestionID, h.PreviousReply, h.NewReply, h.ChangedBy, h.ChangedAt)
 	}
 	return nil
 }
@@ -592,6 +931,95 @@ func (c *launchCLI) wait(asset string) (workflows.LaunchResult, error) {
 	return r, c.checkPersisted(r)
 }
 
+// Shield commands
+
+func (c *launchCLI) shieldStart(asset string) error {
+	if err := c.flow.InitiateShield(c.ctx, asset); err != nil {
+		return err
+	}
+	fmt.Printf("→ started shield %s\n", workflows.ShieldWorkflowID(asset))
+	return nil
+}
+
+func (c *launchCLI) shieldQuery(asset string) (workflows.ShieldResult, error) {
+	r, err := c.queryShieldState(asset)
+	if err != nil {
+		return r, err
+	}
+	printShieldResult("state", r)
+	return r, nil
+}
+
+func (c *launchCLI) shieldSubmitAnswers(asset string, answers map[string]string) error {
+	if err := c.flow.SubmitShieldAnswers(c.ctx, asset, answers); err != nil {
+		return err
+	}
+	fmt.Printf("→ submitted %d shield answer(s)\n", len(answers))
+	return nil
+}
+
+func (c *launchCLI) shieldFinalizeAnswers(asset string, answers map[string]string) error {
+	if err := c.flow.FinalizeShieldAnswers(c.ctx, asset, answers); err != nil {
+		return err
+	}
+	fmt.Printf("→ finalized shield answers with %d more answer(s)\n", len(answers))
+	return nil
+}
+
+func (c *launchCLI) shieldSubmitEvidences(asset string, evidences map[string]model.Evidence) error {
+	if err := c.flow.SubmitShieldEvidences(c.ctx, asset, evidences); err != nil {
+		return err
+	}
+	fmt.Printf("→ submitted %d evidence(s)\n", len(evidences))
+	return nil
+}
+
+func (c *launchCLI) shieldFinalizeEvidences(asset string, evidences map[string]model.Evidence) error {
+	if err := c.flow.FinalizeShieldEvidences(c.ctx, asset, evidences); err != nil {
+		return err
+	}
+	fmt.Printf("→ finalized evidences with %d more evidence(s)\n", len(evidences))
+	return nil
+}
+
+func (c *launchCLI) shieldWait(asset string) (workflows.ShieldResult, error) {
+	var r workflows.ShieldResult
+	if err := c.client.GetWorkflow(c.ctx, workflows.ShieldWorkflowID(asset), "").Get(c.ctx, &r); err != nil {
+		return r, err
+	}
+	printShieldResult("result", r)
+	return r, c.checkShieldPersisted(r)
+}
+
+func (c *launchCLI) queryShieldState(asset string) (workflows.ShieldResult, error) {
+	var r workflows.ShieldResult
+	val, err := c.client.QueryWorkflow(c.ctx, workflows.ShieldWorkflowID(asset), "", workflows.ShieldStateQueryName)
+	if err != nil {
+		return r, err
+	}
+	err = val.Get(&r)
+	return r, err
+}
+
+func (c *launchCLI) waitForShieldState(asset string, state model.ShieldState) (workflows.ShieldResult, error) {
+	return c.waitForShield(asset, "state "+string(state), func(r workflows.ShieldResult) bool { return r.State == state })
+}
+
+func (c *launchCLI) waitForShield(asset, what string, ok func(workflows.ShieldResult) bool) (workflows.ShieldResult, error) {
+	var r workflows.ShieldResult
+	err := poll(c.ctx, func() (bool, error) {
+		var err error
+		r, err = c.queryShieldState(asset)
+		return err == nil && ok(r), err
+	})
+	if err != nil {
+		printShieldResult("last state", r)
+		return r, fmt.Errorf("waiting for %s: %w", what, err)
+	}
+	fmt.Printf("  ✓ %s\n", what)
+	return r, nil
+}
+
 func (c *launchCLI) waitForState(asset string, state model.LaunchState) (workflows.LaunchResult, error) {
 	return c.waitFor(asset, "state "+string(state), func(r workflows.LaunchResult) bool { return r.State == state })
 }
@@ -628,6 +1056,21 @@ func (c *launchCLI) waitForPersisted(launchID string, state model.LaunchState, t
 		return fmt.Errorf("persisted launch state=%s tier=%s, want %s/%s: %w", l.State, strVal(l.TierID), state, tierID, err)
 	}
 	fmt.Printf("  ✓ persisted: state=%s tier=%s\n", l.State, l.TierID)
+	return nil
+}
+
+// checkShieldPersisted verifies the data service holds the completed shield's final state.
+func (c *launchCLI) checkShieldPersisted(r workflows.ShieldResult) error {
+	s, err := c.data.RetrieveShieldByID(c.ctx, r.ID)
+	if err != nil {
+		return fmt.Errorf("shield %s not persisted: %w", r.ID, err)
+	}
+	if s.AssetID != r.AssetID || s.State != r.State || s.Score != r.Score ||
+		s.Reminders != r.Reminders || s.Warnings != r.Warnings || s.Escalations != r.Escalations {
+		return fmt.Errorf("persisted shield %+v does not match result %+v", s, r)
+	}
+	fmt.Printf("  ✓ persisted: state=%s score=%d reminders=%d warnings=%d escalations=%d\n",
+		s.State, s.Score, s.Reminders, s.Warnings, s.Escalations)
 	return nil
 }
 
@@ -735,6 +1178,12 @@ func printResult(label string, r workflows.LaunchResult) {
 		r.RunningTime.Round(time.Millisecond))
 }
 
+func printShieldResult(label string, r workflows.ShieldResult) {
+	fmt.Printf("  %s: id=%s asset=%s state=%s score=%d answered=%d/%d evidences=%d/%d reminders=%d warnings=%d escalations=%d running=%s\n",
+		label, r.ID, r.AssetID, r.State, r.Score, r.Answered, r.Questions, r.EvidencesCount, r.Categories, r.Reminders, r.Warnings, r.Escalations,
+		r.RunningTime.Round(time.Millisecond))
+}
+
 func argAt(args []string, i int, name string) (string, error) {
 	if i >= len(args) || args[i] == "" {
 		return "", fmt.Errorf("missing <%s>", name)
@@ -753,6 +1202,39 @@ func parseAnswers(args []string) ([]model.Answer, error) {
 		answers = append(answers, model.Answer{QuestionID: q, Reply: reply})
 	}
 	return answers, nil
+}
+
+// parseAnswersMap turns "q1=yes q2=no" into a map for Shield.
+func parseAnswersMap(args []string) (map[string]string, error) {
+	answers := make(map[string]string, len(args))
+	for _, a := range args {
+		q, reply, ok := strings.Cut(a, "=")
+		if !ok || q == "" {
+			return nil, fmt.Errorf("invalid answer %q, want questionID=yes|no", a)
+		}
+		answers[q] = reply
+	}
+	return answers, nil
+}
+
+// parseEvidences turns "cat1=desc:url cat2=desc2:url2" into evidences map.
+func parseEvidences(args []string) (map[string]model.Evidence, error) {
+	evidences := make(map[string]model.Evidence, len(args))
+	for _, a := range args {
+		catID, rest, ok := strings.Cut(a, "=")
+		if !ok || catID == "" {
+			return nil, fmt.Errorf("invalid evidence %q, want categoryID=description:url", a)
+		}
+		desc, url, ok := strings.Cut(rest, ":")
+		if !ok {
+			return nil, fmt.Errorf("invalid evidence %q, want categoryID=description:url", a)
+		}
+		evidences[catID] = model.Evidence{
+			Description: desc,
+			URL:         url,
+		}
+	}
+	return evidences, nil
 }
 
 func expect(ok bool, format string, args ...any) error {

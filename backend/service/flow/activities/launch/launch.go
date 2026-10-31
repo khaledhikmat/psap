@@ -63,7 +63,7 @@ func (a *Activities) Create(ctx context.Context, req LaunchCreationRequest) (Lau
 		answers[i] = model.Answer{
 			ID:         launchID + "-" + q.ID,
 			QuestionID: q.ID,
-			LaunchID:   launchID,
+			LaunchID:   &launchID,
 			Reply:      model.UnansweredReply,
 			CreatedBy:  launchActor,
 			UpdatedBy:  launchActor,
