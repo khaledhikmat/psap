@@ -56,6 +56,110 @@ MODE_PROC=cli go run . timeout        # reminders/warnings/escalations until tim
 MODE_PROC=cli go run . shield-happy   # shield: submit answers → submit evidences → complete
 ```
 
+## API Endpoints
+
+Base URL: `http://localhost:8080/v1/physec/accesscontrol/psap`
+
+### Health Check
+```
+GET  /ping
+```
+
+### Tiers
+```
+GET  /tiers           # List all tiers
+GET  /tiers/:id       # Get tier by ID
+```
+
+### Question Categories
+```
+GET  /question-categories              # List all categories (filter by ?type=launch or ?type=shield)
+GET  /question-categories/:id          # Get category by ID
+GET  /question-categories/:id/questions # List questions in category
+```
+
+### Questions
+```
+GET  /questions       # List all questions (filter by ?categoryType=launch or ?categoryType=shield)
+GET  /questions/:id   # Get question by ID
+```
+
+### Workers
+```
+GET  /workers         # List all workers
+GET  /workers/:id     # Get worker by ID
+```
+
+### Assets
+```
+GET  /assets              # List all assets
+GET  /assets/:id          # Get asset by ID
+GET  /assets/:id/launches # List asset's launches
+GET  /assets/:id/shields  # List asset's shields
+GET  /assets/:id/baselines # List asset's baselines
+```
+
+### Launches
+```
+GET  /launches                       # List all launches
+GET  /launches/:id                   # Get launch by ID
+GET  /launches/:id/answers           # List launch answers
+GET  /launches/:id/history           # List answer change history (audit trail)
+POST /launches                       # Initiate a new launch
+POST /launches/:id/submit-answers    # Submit partial answers
+POST /launches/:id/finalize-answers  # Finalize answers
+POST /launches/:id/validate-tier     # Validate tier
+```
+
+### Shields
+```
+GET  /shields                          # List all shields
+GET  /shields/:id                      # Get shield by ID
+GET  /shields/:id/answers              # List shield answers
+GET  /shields/:id/evidences            # List shield evidences
+GET  /shields/:id/history              # List answer change history (audit trail)
+POST /shields                          # Initiate a new shield
+POST /shields/:id/submit-answers       # Submit partial answers
+POST /shields/:id/finalize-answers     # Finalize answers
+POST /shields/:id/submit-evidences     # Submit partial evidences
+POST /shields/:id/finalize-evidences   # Finalize evidences
+```
+
+### Request/Response Examples
+
+**POST /launches**
+```json
+{
+  "assetId": "asset-hq-dc"
+}
+```
+
+**POST /launches/:id/submit-answers**
+```json
+{
+  "answers": [
+    {"questionId": "question-security-1", "reply": "YES"},
+    {"questionId": "question-compliance-2", "reply": "NO"}
+  ]
+}
+```
+
+**POST /shields/:id/submit-evidences**
+```json
+{
+  "evidences": {
+    "category-security": {
+      "description": "Security audit report",
+      "url": "https://example.com/audit.pdf"
+    },
+    "category-compliance": {
+      "description": "Compliance certification",
+      "url": "https://example.com/cert.pdf"
+    }
+  }
+}
+```
+
 ## Database Access
 
 ```bash

@@ -93,27 +93,72 @@ func NewController(svcs service.ServicesFactory, eventStream chan<- interface{})
 func (c *Controller) Routes(rootRouter *gin.RouterGroup) {
 	rootRouter.GET("/ping", c.ping)
 
-	// tiersRouter := rootRouter.Group("/tiers")
-	// {
-	// 	tiersRouter.GET("", c.listTiers)
-	// }
+	// Tiers
+	tiersRouter := rootRouter.Group("/tiers")
+	{
+		tiersRouter.GET("", c.listTiers)
+		tiersRouter.GET("/:id", c.showTier)
+	}
 
-	// assetsRouter := rootRouter.Group("/assets")
-	// {
-	// 	assetsRouter.GET("", c.listAssets)
-	// 	assetsRouter.GET("/:id", c.showAsset)
-	// 	assetsRouter.GET("/:id/launches", c.listAssetLaunches)
-	// 	assetsRouter.GET("/:id/shields", c.listAssetShields)
-	// 	assetsRouter.GET("/:id/baselines", c.listAssetBaselines)
+	// Question Categories
+	categoriesRouter := rootRouter.Group("/question-categories")
+	{
+		categoriesRouter.GET("", c.listQuestionCategories)
+		categoriesRouter.GET("/:id", c.showQuestionCategory)
+		categoriesRouter.GET("/:id/questions", c.listCategoryQuestions)
+	}
 
-	// 	assetsRouter.POST("/:id/launches", c.initiateAssetLaunch)
-	// }
+	// Questions
+	questionsRouter := rootRouter.Group("/questions")
+	{
+		questionsRouter.GET("", c.listQuestions)
+		questionsRouter.GET("/:id", c.showQuestion)
+	}
 
-	// launchesRouter := rootRouter.Group("/launches")
-	// {
-	// 	launchesRouter.GET("", c.listLaunches)
-	// 	launchesRouter.GET("/:id", c.showLaunch)
-	// }
+	// Workers
+	workersRouter := rootRouter.Group("/workers")
+	{
+		workersRouter.GET("", c.listWorkers)
+		workersRouter.GET("/:id", c.showWorker)
+	}
+
+	// Assets
+	assetsRouter := rootRouter.Group("/assets")
+	{
+		assetsRouter.GET("", c.listAssets)
+		assetsRouter.GET("/:id", c.showAsset)
+		assetsRouter.GET("/:id/launches", c.listAssetLaunches)
+		assetsRouter.GET("/:id/shields", c.listAssetShields)
+		assetsRouter.GET("/:id/baselines", c.listAssetBaselines)
+	}
+
+	// Launches
+	launchesRouter := rootRouter.Group("/launches")
+	{
+		launchesRouter.GET("", c.listLaunches)
+		launchesRouter.GET("/:id", c.showLaunch)
+		launchesRouter.GET("/:id/answers", c.listLaunchAnswers)
+		launchesRouter.GET("/:id/history", c.listLaunchAnswerHistory)
+		launchesRouter.POST("", c.initiateLaunch)
+		launchesRouter.POST("/:id/submit-answers", c.submitLaunchAnswers)
+		launchesRouter.POST("/:id/finalize-answers", c.finalizeLaunchAnswers)
+		launchesRouter.POST("/:id/validate-tier", c.validateLaunchTier)
+	}
+
+	// Shields
+	shieldsRouter := rootRouter.Group("/shields")
+	{
+		shieldsRouter.GET("", c.listShields)
+		shieldsRouter.GET("/:id", c.showShield)
+		shieldsRouter.GET("/:id/answers", c.listShieldAnswers)
+		shieldsRouter.GET("/:id/evidences", c.listShieldEvidences)
+		shieldsRouter.GET("/:id/history", c.listShieldAnswerHistory)
+		shieldsRouter.POST("", c.initiateShield)
+		shieldsRouter.POST("/:id/submit-answers", c.submitShieldAnswers)
+		shieldsRouter.POST("/:id/finalize-answers", c.finalizeShieldAnswers)
+		shieldsRouter.POST("/:id/submit-evidences", c.submitShieldEvidences)
+		shieldsRouter.POST("/:id/finalize-evidences", c.finalizeShieldEvidences)
+	}
 
 	errorsRouter := rootRouter.Group("/errors")
 	{
