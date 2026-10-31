@@ -74,6 +74,10 @@ func NewTemporal(cfgsvc config.IService, datasvc data.IService) IService {
 }
 
 func (s *service) Finalize() {
+	if s.tClient == nil {
+		return
+	}
+
 	s.tClient.Close()
 }
 
