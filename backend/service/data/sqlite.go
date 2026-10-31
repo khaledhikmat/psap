@@ -170,9 +170,10 @@ type dbtx interface {
 }
 
 type column struct {
-	name    string
-	sqlType string
-	index   int // struct field index
+	name     string
+	sqlType  string
+	index    int  // struct field index
+	nullable bool // true for pointer types (*string, *int, etc.)
 }
 
 type table struct {
@@ -191,14 +192,23 @@ func newTable[T any](name, id string) table {
 		if tag == "" || tag == "-" {
 			continue
 		}
+
+		// Check if the field is a pointer (nullable)
+		fieldType := f.Type
+		nullable := false
+		if fieldType.Kind() == reflect.Ptr {
+			nullable = true
+			fieldType = fieldType.Elem() // get the underlying type
+		}
+
 		sqlType := "TEXT"
-		switch f.Type.Kind() {
+		switch fieldType.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Bool:
 			sqlType = "INTEGER"
 		case reflect.Float32, reflect.Float64:
 			sqlType = "REAL"
 		}
-		c := column{name: tag, sqlType: sqlType, index: i}
+		c := column{name: tag, sqlType: sqlType, index: i, nullable: nullable}
 		t.cols = append(t.cols, c)
 		t.byName[tag] = c
 	}
@@ -217,11 +227,13 @@ func (t table) createSQL() string {
 }
 
 // columnDef gives every non-ID column a zero-value default, so existing rows get a
-// scannable value when a column is added later.
+// scannable value when a column is added later. Nullable columns (pointer types) allow NULL.
 func (t table) columnDef(c column) string {
 	switch {
 	case c.name == t.id:
 		return c.name + " " + c.sqlType + " PRIMARY KEY NOT NULL"
+	case c.nullable:
+		return c.name + " " + c.sqlType // nullable, no NOT NULL or DEFAULT
 	case c.sqlType == "TEXT":
 		return c.name + " TEXT NOT NULL DEFAULT ''"
 	default:

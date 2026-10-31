@@ -90,12 +90,12 @@ type Asset struct {
 	Space             string     `json:"space" db:"SPACE"`
 	Priority          string     `json:"priority" db:"PRIORITY"`
 	State             AssetState `json:"state" db:"STATE"`
-	TierID            string     `json:"tierId" db:"TIER_ID"`
-	LastLaunchID      string     `json:"lastLaunchId" db:"LAST_LAUNCH_ID"`
-	LastShieldID      string     `json:"lastShieldId" db:"LAST_SHIELD_ID"`
-	LastBaselineID    string     `json:"lastBaselineId" db:"LAST_BASELINE_ID"`
-	BusinessOwnerID   string     `json:"businessOwner" db:"BUSINESS_OWNER"`
-	BusinessManagerID string     `json:"businessManager" db:"BUSINESS_MANAGER"`
+	TierID            *string    `json:"tierId,omitempty" db:"TIER_ID"`
+	LastLaunchID      *string    `json:"lastLaunchId,omitempty" db:"LAST_LAUNCH_ID"`
+	LastShieldID      *string    `json:"lastShieldId,omitempty" db:"LAST_SHIELD_ID"`
+	LastBaselineID    *string    `json:"lastBaselineId,omitempty" db:"LAST_BASELINE_ID"`
+	BusinessOwnerID   *string    `json:"businessOwner,omitempty" db:"BUSINESS_OWNER"`
+	BusinessManagerID *string    `json:"businessManager,omitempty" db:"BUSINESS_MANAGER"`
 	CreatedBy         string     `json:"createdBy" db:"CREATED_BY"`
 	CreatedAt         string     `json:"createdAt" db:"CREATED_AT"`
 	UpdatedBy         string     `json:"updatedBy" db:"UPDATED_BY"`
@@ -163,7 +163,7 @@ const (
 type Launch struct {
 	ID          string      `json:"id" db:"ID"`
 	AssetID     string      `json:"assetId" db:"ASSET_ID"`
-	TierID      string      `json:"tierId" db:"TIER_ID"`
+	TierID      *string     `json:"tierId,omitempty" db:"TIER_ID"`
 	State       LaunchState `json:"state" db:"STATE"`
 	Reminders   int         `json:"reminders" db:"REMINDERS"`
 	Warnings    int         `json:"warnings" db:"WARNINGS"`

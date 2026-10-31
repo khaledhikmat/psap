@@ -14,6 +14,11 @@ import (
 
 const seedActor = "seed"
 
+// stringPtr returns a pointer to the given string
+func stringPtr(s string) *string {
+	return &s
+}
+
 // seed fills each seeded table, but only when that table is empty, so it never overwrites
 // or duplicates data that has since been edited.
 //
@@ -112,10 +117,10 @@ func seedAssets() []model.Asset {
 	return []model.Asset{
 		{ID: "asset-hq-dc", Name: "HQ Data Center", Campus: "Main Campus", Building: "B1", Section: "East",
 			Level: "Basement", Wing: "East", Floor: "B1", Space: "DC-01", Priority: "high",
-			State: model.PendingLaunchAssetState, BusinessOwnerID: "worker-owner-1", BusinessManagerID: "worker-manager-1"},
+			State: model.PendingLaunchAssetState, BusinessOwnerID: stringPtr("worker-owner-1"), BusinessManagerID: stringPtr("worker-manager-1")},
 		{ID: "asset-rd-lab", Name: "R&D Lab 3", Campus: "North Campus", Building: "N2", Section: "West",
 			Level: "Ground", Wing: "West", Floor: "1", Space: "LAB-03", Priority: "medium",
-			State: model.PendingLaunchAssetState, BusinessOwnerID: "worker-owner-2", BusinessManagerID: "worker-manager-2"},
+			State: model.PendingLaunchAssetState, BusinessOwnerID: stringPtr("worker-owner-2"), BusinessManagerID: stringPtr("worker-manager-2")},
 	}
 }
 

@@ -15,6 +15,8 @@ Metrics: http://localhost:57058/metrics
 
 # terminal 2 - flow worker
 MODE_PROC=flowworker go run .
+or
+MODE_PROC=multiflowworker go run .
 
 # terminal 3 - starter/test CLI. Eventually this an API Layer
 MODE_PROC=cli go run . help        # list commands
@@ -23,3 +25,14 @@ MODE_PROC=cli go run . relaunch    # relaunch mid-launch cancels the running lau
 MODE_PROC=cli go run . timeout     # reminders/warnings/escalations until timed out (~25s)
 ```
 
+## Database Access
+
+```bash
+cd backend
+sqlite3 psap.db
+.tables
+.schema
+.schema <table-name>
+SELECT * FROM ASSETS;
+.quit
+```

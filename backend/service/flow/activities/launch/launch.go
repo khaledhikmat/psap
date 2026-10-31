@@ -74,7 +74,7 @@ func (a *Activities) Create(ctx context.Context, req LaunchCreationRequest) (Lau
 		return LaunchCreationResult{}, err
 	}
 
-	asset.LastLaunchID = launchID
+	asset.LastLaunchID = &launchID
 	asset.UpdatedBy = launchActor
 	if err := a.DataSvc.UpdateAsset(ctx, asset); err != nil {
 		return LaunchCreationResult{}, err
@@ -172,7 +172,7 @@ func (a *Activities) Persist(ctx context.Context, req LaunchPersistRequest) erro
 	if err != nil {
 		return err
 	}
-	launch.TierID = req.TierID
+	launch.TierID = &req.TierID
 	launch.State = req.State
 	launch.Reminders = req.Reminders
 	launch.Warnings = req.Warnings
@@ -189,7 +189,7 @@ func (a *Activities) Persist(ctx context.Context, req LaunchPersistRequest) erro
 	if err != nil {
 		return err
 	}
-	asset.TierID = req.TierID
+	asset.TierID = &req.TierID
 	asset.State = model.PendingShieldAssetState
 	asset.UpdatedBy = launchActor
 	return a.DataSvc.UpdateAsset(ctx, asset)

@@ -82,7 +82,7 @@ func (s *service) InitiateLaunch(ctx context.Context, assetID string) error {
 	if err != nil {
 		return err
 	}
-	if asset.BusinessOwnerID == "" || asset.BusinessManagerID == "" {
+	if asset.BusinessOwnerID == nil || asset.BusinessManagerID == nil {
 		return fmt.Errorf("asset %s needs a business owner and a business manager before it can be launched", assetID)
 	}
 
@@ -105,8 +105,8 @@ func (s *service) InitiateLaunch(ctx context.Context, assetID string) error {
 
 	we, err := s.tClient.ExecuteWorkflow(ctx, options, workflows.Launch, workflows.LaunchRequest{
 		AssetID:           assetID,
-		BusinessOwner:     asset.BusinessOwnerID,
-		BusinessManager:   asset.BusinessManagerID,
+		BusinessOwner:     *asset.BusinessOwnerID,
+		BusinessManager:   *asset.BusinessManagerID,
 		ReminderTimeout:   launchReminderTimeout,
 		MaxReminders:      launchMaxReminders,
 		WarningTimeout:    launchWarningTimeout,
@@ -152,7 +152,11 @@ func (s *service) cancelRunningLaunch(ctx context.Context, asset model.Asset) er
 		return nil
 	}
 
-	lgr.Logger.Info("Cancelling running launch", slog.String("WorkflowID", workflowID), slog.String("LaunchID", asset.LastLaunchID))
+	launchID := ""
+	if asset.LastLaunchID != nil {
+		launchID = *asset.LastLaunchID
+	}
+	lgr.Logger.Info("Cancelling running launch", slog.String("WorkflowID", workflowID), slog.String("LaunchID", launchID))
 	if err := s.tClient.CancelWorkflow(ctx, workflowID, ""); err != nil {
 		return err
 	}
@@ -177,10 +181,10 @@ func (s *service) cancelRunningLaunch(ctx context.Context, asset model.Asset) er
 		return err
 	}
 	// The asset's last launch is the one that was running: Create sets it when a launch starts.
-	if asset.LastLaunchID == "" {
+	if asset.LastLaunchID == nil {
 		return nil
 	}
-	launch, err := s.datasvc.RetrieveLaunchByID(ctx, asset.LastLaunchID)
+	launch, err := s.datasvc.RetrieveLaunchByID(ctx, *asset.LastLaunchID)
 	if errors.Is(err, data.ErrNotFound) {
 		return nil
 	}
@@ -200,7 +204,7 @@ func (s *service) QueryLaunch(ctx context.Context, assetID string) (model.Launch
 	return model.Launch{
 		ID:          result.ID,
 		AssetID:     result.AssetID,
-		TierID:      result.TierID,
+		TierID:      &result.TierID,
 		State:       result.State,
 		Reminders:   result.Reminders,
 		Warnings:    result.Warnings,

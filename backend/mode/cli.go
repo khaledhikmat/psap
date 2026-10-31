@@ -48,6 +48,14 @@ Scenarios (assetID optional, defaults to the first asset):
                        escalations fire until the launch times out (~25s)
 `
 
+// strVal safely dereferences a string pointer, returning empty string if nil
+func strVal(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // CLI drives the Launch workflow from the command line. Actions go through the flow
 // service, the same path the API uses; a raw Temporal client is used only to observe the
 // workflow (full query state, waiting for the result) and to start with short timeouts.
@@ -389,8 +397,8 @@ func (c *launchCLI) timeoutScenario(asset string) error {
 	}
 	req := workflows.LaunchRequest{
 		AssetID:           asset,
-		BusinessOwner:     a.BusinessOwnerID,
-		BusinessManager:   a.BusinessManagerID,
+		BusinessOwner:     *a.BusinessOwnerID,
+		BusinessManager:   *a.BusinessManagerID,
 		ReminderTimeout:   2,
 		MaxReminders:      2,
 		WarningTimeout:    5,
@@ -459,7 +467,7 @@ func (c *launchCLI) listAssets() error {
 	}
 	for _, a := range assets {
 		fmt.Printf("%-14s %-16s state=%-16s tier=%-7s owner=%s manager=%s lastLaunch=%s\n",
-			a.ID, a.Name, a.State, a.TierID, c.workerName(a.BusinessOwnerID), c.workerName(a.BusinessManagerID), a.LastLaunchID)
+			a.ID, a.Name, a.State, strVal(a.TierID), c.workerName(strVal(a.BusinessOwnerID)), c.workerName(strVal(a.BusinessManagerID)), strVal(a.LastLaunchID))
 	}
 	return nil
 }
@@ -501,10 +509,10 @@ func (c *launchCLI) listAnswers(asset string) error {
 	if err != nil {
 		return err
 	}
-	if a.LastLaunchID == "" {
+	if a.LastLaunchID == nil || *a.LastLaunchID == "" {
 		return fmt.Errorf("asset %s has not been launched", asset)
 	}
-	answers, err := c.data.RetrieveAnswersByLaunchID(c.ctx, a.LastLaunchID)
+	answers, err := c.data.RetrieveAnswersByLaunchID(c.ctx, *a.LastLaunchID)
 	if err != nil {
 		return err
 	}
@@ -614,10 +622,10 @@ func (c *launchCLI) waitForPersisted(launchID string, state model.LaunchState, t
 	err := poll(c.ctx, func() (bool, error) {
 		var err error
 		l, err = c.data.RetrieveLaunchByID(c.ctx, launchID)
-		return err == nil && l.State == state && l.TierID == tierID, err
+		return err == nil && l.State == state && strVal(l.TierID) == tierID, err
 	})
 	if err != nil {
-		return fmt.Errorf("persisted launch state=%s tier=%s, want %s/%s: %w", l.State, l.TierID, state, tierID, err)
+		return fmt.Errorf("persisted launch state=%s tier=%s, want %s/%s: %w", l.State, strVal(l.TierID), state, tierID, err)
 	}
 	fmt.Printf("  ✓ persisted: state=%s tier=%s\n", l.State, l.TierID)
 	return nil
@@ -629,7 +637,7 @@ func (c *launchCLI) checkPersisted(r workflows.LaunchResult) error {
 	if err != nil {
 		return fmt.Errorf("launch %s not persisted: %w", r.ID, err)
 	}
-	if l.AssetID != r.AssetID || l.State != r.State || l.TierID != r.TierID ||
+	if l.AssetID != r.AssetID || l.State != r.State || strVal(l.TierID) != r.TierID ||
 		l.Reminders != r.Reminders || l.Warnings != r.Warnings || l.Escalations != r.Escalations {
 		return fmt.Errorf("persisted launch %+v does not match result %+v", l, r)
 	}
@@ -662,12 +670,12 @@ func (c *launchCLI) expectAsset(assetID, launchID, tierID string) error {
 	if err != nil {
 		return err
 	}
-	if err := expect(a.LastLaunchID == launchID && a.TierID == tierID && a.State == model.PendingShieldAssetState,
+	if err := expect(strVal(a.LastLaunchID) == launchID && strVal(a.TierID) == tierID && a.State == model.PendingShieldAssetState,
 		"asset lastLaunch=%s tier=%s state=%s, want %s/%s/%s",
-		a.LastLaunchID, a.TierID, a.State, launchID, tierID, model.PendingShieldAssetState); err != nil {
+		strVal(a.LastLaunchID), strVal(a.TierID), a.State, launchID, tierID, model.PendingShieldAssetState); err != nil {
 		return err
 	}
-	fmt.Printf("  ✓ asset %s: tier=%s state=%s lastLaunch=%s\n", assetID, a.TierID, a.State, a.LastLaunchID)
+	fmt.Printf("  ✓ asset %s: tier=%s state=%s lastLaunch=%s\n", assetID, strVal(a.TierID), a.State, strVal(a.LastLaunchID))
 	return nil
 }
 
