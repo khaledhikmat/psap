@@ -7,6 +7,7 @@ import (
 	"github.com/khaledhikmat/psap/service"
 	"github.com/khaledhikmat/psap/service/flow/activities/launch"
 	"github.com/khaledhikmat/psap/service/flow/activities/notification"
+	shieldactivities "github.com/khaledhikmat/psap/service/flow/activities/shield"
 	"github.com/khaledhikmat/psap/service/flow/helpers"
 	"github.com/khaledhikmat/psap/service/flow/workflows"
 	"go.temporal.io/sdk/client"
@@ -31,7 +32,9 @@ func Worker(canxCtx context.Context, pod string, svcs service.ServicesFactory) e
 	})
 
 	w.RegisterWorkflow(workflows.Launch)
+	w.RegisterWorkflow(workflows.Shield)
 	w.RegisterActivity(launch.NewActivities(svcs.CfgSvc, svcs.DataSvc))
+	w.RegisterActivity(&shieldactivities.Activities{DataSvc: svcs.DataSvc})
 	w.RegisterActivity(notification.NewActivities(svcs.CfgSvc, svcs.DataSvc))
 
 	err = w.Run(worker.InterruptCh())

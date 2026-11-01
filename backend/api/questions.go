@@ -97,3 +97,47 @@ func (c *Controller) showQuestion(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, result)
 }
+
+// Predefined Answers
+
+func (c *Controller) listPredefinedAnswers(ctx *gin.Context) {
+	// Support optional type filter
+	categoryType := ctx.Query("type")
+
+	var result []model.PredefinedAnswer
+	var err error
+
+	if categoryType != "" {
+		result, err = c.Svcs.DataSvc.RetrievePredefinedAnswersByCategoryType(ctx, model.QuestionCategoryType(categoryType))
+	} else {
+		result, err = c.Svcs.DataSvc.RetrievePredefinedAnswers(ctx)
+	}
+
+	if err != nil {
+		newError(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, result)
+}
+
+func (c *Controller) listQuestionPredefinedAnswers(ctx *gin.Context) {
+	id := ctx.Param("id")
+
+	if _, err := c.Svcs.DataSvc.RetrieveQuestionByID(ctx, id); err != nil {
+		if err == data.ErrNotFound {
+			newError(ctx, http.StatusNotFound, err)
+			return
+		}
+		newError(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	result, err := c.Svcs.DataSvc.RetrievePredefinedAnswersByQuestionID(ctx, id)
+	if err != nil {
+		newError(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, result)
+}

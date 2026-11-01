@@ -13,7 +13,7 @@ type LaunchCreationResult struct {
 
 type LaunchAnswersSaveRequest struct {
 	LaunchID  string
-	Answers   []model.Answer // QuestionID and Reply are used
+	Answers   []model.AnswerSubmission
 	UpdatedBy string
 }
 

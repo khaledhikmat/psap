@@ -14,34 +14,45 @@ type ShieldCreationRequest struct {
 }
 
 type ShieldCreationResult struct {
-	ShieldID   string
-	Questions  int
-	Categories int
+	ShieldID         string
+	Questions        int
+	EvidenceRequired int // number of questions that require evidence
 }
 
 type ShieldAnswersSaveRequest struct {
-	ShieldID string
-	Answers  map[string]string // questionID -> reply
+	ShieldID  string
+	Answers   []model.AnswerSubmission
+	UpdatedBy string
 }
 
+type ShieldAnswersSaveResult struct {
+	Answered  int
+	Questions int
+}
+
+// ShieldAnswersFinalizeRequest carries the last answers. The flow service only lets a shield
+// finalize once every question is answered.
 type ShieldAnswersFinalizeRequest struct {
-	ShieldID string
-	Answers  map[string]string // questionID -> reply (remaining unanswered become NO)
+	ShieldID  string
+	Answers   []model.AnswerSubmission
+	UpdatedBy string
 }
 
 type ShieldEvidencesSaveRequest struct {
 	ShieldID  string
-	Evidences map[string]ShieldEvidenceData // categoryID -> evidence
+	Evidences []model.EvidenceSubmission
+	UpdatedBy string
 }
 
-type ShieldEvidenceData struct {
-	Description string
-	URL         string
+type ShieldEvidencesSaveResult struct {
+	Provided int // questions requiring evidence that have some
+	Required int // questions requiring evidence
 }
 
 type ShieldEvidencesFinalizeRequest struct {
 	ShieldID  string
-	Evidences map[string]ShieldEvidenceData // categoryID -> evidence
+	Evidences []model.EvidenceSubmission
+	UpdatedBy string
 }
 
 type ShieldScoreCalculationRequest struct {

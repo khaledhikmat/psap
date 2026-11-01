@@ -36,34 +36,34 @@ type ShieldRequest struct {
 	MaxEscalations    int
 
 	// Carried over by Continue-As-New. Leave empty when starting a new shield.
-	ShieldID       string
-	StartedAt      time.Time
-	State          model.ShieldState
-	Score          int
-	Answered       int
-	Questions      int
-	EvidencesCount int
-	Categories     int
-	Reminders      int
-	Warnings       int
-	Escalations    int
+	ShieldID         string
+	StartedAt        time.Time
+	State            model.ShieldState
+	Score            int
+	Answered         int
+	Questions        int
+	EvidencesCount   int
+	EvidenceRequired int
+	Reminders        int
+	Warnings         int
+	Escalations      int
 }
 
 type ShieldResult struct {
-	ID              string
-	AssetID         string
-	RunningTime     time.Duration
-	State           model.ShieldState
-	Score           int
-	Answered        int
-	Questions       int
-	EvidencesCount  int
-	Categories      int
-	BusinessOwner   string
-	BusinessManager string
-	Reminders       int
-	Warnings        int
-	Escalations     int
+	ID               string
+	AssetID          string
+	RunningTime      time.Duration
+	State            model.ShieldState
+	Score            int
+	Answered         int
+	Questions        int
+	EvidencesCount   int
+	EvidenceRequired int
+	BusinessOwner    string
+	BusinessManager  string
+	Reminders        int
+	Warnings         int
+	Escalations      int
 }
 
 // ShieldWorkflowID is the workflow ID of an asset's shield. Using one ID per asset is what
@@ -72,14 +72,14 @@ func ShieldWorkflowID(assetID string) string {
 	return "asset-shield-wf-" + assetID
 }
 
-// SubmitAnswersShieldSignal carries replies by question ID.
+// SubmitAnswersShieldSignal carries the selected predefined answers by question.
 type SubmitAnswersShieldSignal struct {
-	Answers map[string]string // questionID -> reply
+	Answers []model.AnswerSubmission
 }
 
-// SubmitEvidencesShieldSignal carries evidence data by category ID.
+// SubmitEvidencesShieldSignal carries the evidence recorded for answered questions.
 type SubmitEvidencesShieldSignal struct {
-	Evidences map[string]shieldactivities.ShieldEvidenceData // categoryID -> evidence
+	Evidences []model.EvidenceSubmission
 }
 
 // Shield creates a shield for an asset and collects the business owner's answers and evidences.
@@ -129,8 +129,8 @@ type shield struct {
 	score       int
 	answered    int
 	questions   int
-	evidences   int
-	categories  int
+	evidences   int // questions requiring evidence that have some
+	evidenceReq int // questions requiring evidence
 	reminders   int
 	warnings    int
 	escalations int
@@ -159,7 +159,7 @@ func newShield(ctx workflow.Context, req ShieldRequest) *shield {
 		answered:    req.Answered,
 		questions:   req.Questions,
 		evidences:   req.EvidencesCount,
-		categories:  req.Categories,
+		evidenceReq: req.EvidenceRequired,
 		reminders:   req.Reminders,
 		warnings:    req.Warnings,
 		escalations: req.Escalations,
@@ -174,7 +174,7 @@ func (w *shield) setupQuery() error {
 
 func (w *shield) create() error {
 	var res shieldactivities.ShieldCreationResult
-	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.Create, shieldactivities.ShieldCreationRequest{
+	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.CreateShield, shieldactivities.ShieldCreationRequest{
 		AssetID: w.req.AssetID,
 	}).Get(w.ctx, &res)
 	if err != nil {
@@ -182,7 +182,7 @@ func (w *shield) create() error {
 	}
 	w.id = res.ShieldID
 	w.questions = res.Questions
-	w.categories = res.Categories
+	w.evidenceReq = res.EvidenceRequired
 	w.state = model.WaitingForAnswersShieldState
 	return nil
 }
@@ -199,7 +199,7 @@ func (w *shield) persist() error {
 	if current == w.persisted {
 		return nil
 	}
-	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.Persist, shieldactivities.ShieldPersistRequest{
+	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.PersistShield, shieldactivities.ShieldPersistRequest{
 		ShieldID:    w.id,
 		Score:       w.score,
 		State:       w.state,
@@ -307,73 +307,73 @@ func (w *shield) waitForEvidences() {
 	selector.Select(w.ctx)
 }
 
-func (w *shield) saveAnswers(answers map[string]string) {
-	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.SaveAnswers, shieldactivities.ShieldAnswersSaveRequest{
-		ShieldID: w.id,
-		Answers:  answers,
-	}).Get(w.ctx, nil)
+func (w *shield) saveAnswers(answers []model.AnswerSubmission) {
+	var res shieldactivities.ShieldAnswersSaveResult
+	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.SaveShieldAnswers, shieldactivities.ShieldAnswersSaveRequest{
+		ShieldID:  w.id,
+		Answers:   answers,
+		UpdatedBy: w.req.BusinessOwner,
+	}).Get(w.ctx, &res)
 	if err != nil {
 		w.logger.Error("Failed to save shield answers", "assetID", w.req.AssetID, "ShieldID", w.id, "error", err)
 		return
 	}
-	w.answered += len(answers)
+	w.answered = res.Answered
 	w.persistStep()
 }
 
-func (w *shield) finalizeAnswers(answers map[string]string) {
+func (w *shield) finalizeAnswers(answers []model.AnswerSubmission) {
+	var res shieldactivities.ShieldAnswersSaveResult
 	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.FinalizeAnswers, shieldactivities.ShieldAnswersFinalizeRequest{
-		ShieldID: w.id,
-		Answers:  answers,
-	}).Get(w.ctx, nil)
+		ShieldID:  w.id,
+		Answers:   answers,
+		UpdatedBy: w.req.BusinessOwner,
+	}).Get(w.ctx, &res)
 	if err != nil {
 		w.logger.Error("Failed to finalize shield answers", "assetID", w.req.AssetID, "ShieldID", w.id, "error", err)
 		return
 	}
-	w.answered = w.questions
+	w.answered = res.Answered
 	if w.state == model.WaitingForAnswersShieldState {
 		w.state = model.AnswersSubmittedShieldState
-	} else if w.state == model.WaitingForEvidencesShieldState && w.evidences == w.categories {
-		// Both done
-		w.complete()
-		return
 	}
-	// Move to waiting for evidences if not already there
+	// Move to waiting for evidences
 	if w.state == model.AnswersSubmittedShieldState {
 		w.state = model.WaitingForEvidencesShieldState
 	}
 	w.persistStep()
 }
 
-func (w *shield) saveEvidences(evidences map[string]shieldactivities.ShieldEvidenceData) {
+func (w *shield) saveEvidences(evidences []model.EvidenceSubmission) {
+	var res shieldactivities.ShieldEvidencesSaveResult
 	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.SaveEvidences, shieldactivities.ShieldEvidencesSaveRequest{
 		ShieldID:  w.id,
 		Evidences: evidences,
-	}).Get(w.ctx, nil)
+		UpdatedBy: w.req.BusinessOwner,
+	}).Get(w.ctx, &res)
 	if err != nil {
 		w.logger.Error("Failed to save shield evidences", "assetID", w.req.AssetID, "ShieldID", w.id, "error", err)
 		return
 	}
-	w.evidences += len(evidences)
+	w.evidences = res.Provided
+	w.evidenceReq = res.Required
 	w.persistStep()
 }
 
-func (w *shield) finalizeEvidences(evidences map[string]shieldactivities.ShieldEvidenceData) {
+func (w *shield) finalizeEvidences(evidences []model.EvidenceSubmission) {
+	var res shieldactivities.ShieldEvidencesSaveResult
 	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.FinalizeEvidences, shieldactivities.ShieldEvidencesFinalizeRequest{
 		ShieldID:  w.id,
 		Evidences: evidences,
-	}).Get(w.ctx, nil)
+		UpdatedBy: w.req.BusinessOwner,
+	}).Get(w.ctx, &res)
 	if err != nil {
 		w.logger.Error("Failed to finalize shield evidences", "assetID", w.req.AssetID, "ShieldID", w.id, "error", err)
 		return
 	}
-	w.evidences = w.categories
-	if w.state == model.WaitingForEvidencesShieldState {
-		w.state = model.EvidencesSubmittedShieldState
-	} else if w.state == model.AnswersSubmittedShieldState && w.answered == w.questions {
-		// Both done
-		w.complete()
-		return
-	}
+	w.evidences = res.Provided
+	w.evidenceReq = res.Required
+	w.state = model.EvidencesSubmittedShieldState
 	w.persistStep()
 }
 
@@ -487,7 +487,7 @@ func (w *shield) continueAsNew() error {
 	next.Answered = w.answered
 	next.Questions = w.questions
 	next.EvidencesCount = w.evidences
-	next.Categories = w.categories
+	next.EvidenceRequired = w.evidenceReq
 	next.Reminders = w.reminders
 	next.Warnings = w.warnings
 	next.Escalations = w.escalations
@@ -499,19 +499,19 @@ func (w *shield) result() ShieldResult {
 		w.startedAt = workflow.Now(w.ctx)
 	}
 	return ShieldResult{
-		ID:              w.id,
-		AssetID:         w.req.AssetID,
-		RunningTime:     workflow.Now(w.ctx).Sub(w.startedAt),
-		State:           w.state,
-		Score:           w.score,
-		Answered:        w.answered,
-		Questions:       w.questions,
-		EvidencesCount:  w.evidences,
-		Categories:      w.categories,
-		BusinessOwner:   w.req.BusinessOwner,
-		BusinessManager: w.req.BusinessManager,
-		Reminders:       w.reminders,
-		Warnings:        w.warnings,
-		Escalations:     w.escalations,
+		ID:               w.id,
+		AssetID:          w.req.AssetID,
+		RunningTime:      workflow.Now(w.ctx).Sub(w.startedAt),
+		State:            w.state,
+		Score:            w.score,
+		Answered:         w.answered,
+		Questions:        w.questions,
+		EvidencesCount:   w.evidences,
+		EvidenceRequired: w.evidenceReq,
+		BusinessOwner:    w.req.BusinessOwner,
+		BusinessManager:  w.req.BusinessManager,
+		Reminders:        w.reminders,
+		Warnings:         w.warnings,
+		Escalations:      w.escalations,
 	}
 }

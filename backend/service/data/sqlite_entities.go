@@ -2,7 +2,6 @@ package data
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -83,14 +82,17 @@ func (s *sqliteService) RetrieveQuestions(ctx context.Context) ([]model.Question
 }
 
 func (s *sqliteService) RetrieveQuestionsByCategoryID(ctx context.Context, categoryID string) ([]model.Question, error) {
-	return listRows[model.Question](ctx, s.db, questionsTable, "CATEGORY_ID = ?", categoryID)
+	questions := []model.Question{}
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE CATEGORY_ID = ? ORDER BY DISPLAY_ORDER, ID", questionsTable.columnList(""), questionsTable.name)
+	err := s.db.SelectContext(ctx, &questions, query, categoryID)
+	return questions, err
 }
 
-// RetrieveQuestionsByCategoryType returns questions in category order, then question order.
+// RetrieveQuestionsByCategoryType returns questions in category order, then display order.
 func (s *sqliteService) RetrieveQuestionsByCategoryType(ctx context.Context, categoryType model.QuestionCategoryType) ([]model.Question, error) {
 	questions := []model.Question{}
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s q JOIN %s c ON c.ID = q.CATEGORY_ID WHERE c.TYPE = ? ORDER BY c.CREATED_AT, c.ID, q.CREATED_AT, q.ID",
+		"SELECT %s FROM %s q JOIN %s c ON c.ID = q.CATEGORY_ID WHERE c.TYPE = ? ORDER BY c.CREATED_AT, c.ID, q.DISPLAY_ORDER, q.ID",
 		questionsTable.columnList("q."), questionsTable.name, questionCategoriesTable.name)
 	err := s.db.SelectContext(ctx, &questions, query, categoryType)
 	return questions, err
@@ -104,79 +106,235 @@ func (s *sqliteService) UpdateQuestion(ctx context.Context, question model.Quest
 	return updateRow(ctx, s.db, questionsTable, question)
 }
 
-// Answers
+// Predefined answers
 
-func (s *sqliteService) NewAnswers(ctx context.Context, answers []model.Answer) error {
+func (s *sqliteService) NewPredefinedAnswer(ctx context.Context, answer model.PredefinedAnswer) error {
+	return insertRow(ctx, s.db, predefinedAnswersTable, answer)
+}
+
+func (s *sqliteService) RetrievePredefinedAnswers(ctx context.Context) ([]model.PredefinedAnswer, error) {
+	return listRows[model.PredefinedAnswer](ctx, s.db, predefinedAnswersTable, "")
+}
+
+func (s *sqliteService) RetrievePredefinedAnswersByQuestionID(ctx context.Context, questionID string) ([]model.PredefinedAnswer, error) {
+	answers := []model.PredefinedAnswer{}
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE QUESTION_ID = ? ORDER BY DISPLAY_ORDER, ID",
+		predefinedAnswersTable.columnList(""), predefinedAnswersTable.name)
+	err := s.db.SelectContext(ctx, &answers, query, questionID)
+	return answers, err
+}
+
+func (s *sqliteService) RetrievePredefinedAnswersByCategoryType(ctx context.Context, categoryType model.QuestionCategoryType) ([]model.PredefinedAnswer, error) {
+	answers := []model.PredefinedAnswer{}
+	query := fmt.Sprintf(
+		"SELECT %s FROM %s p JOIN %s q ON q.ID = p.QUESTION_ID JOIN %s c ON c.ID = q.CATEGORY_ID WHERE c.TYPE = ? "+
+			"ORDER BY c.CREATED_AT, c.ID, q.DISPLAY_ORDER, q.ID, p.DISPLAY_ORDER, p.ID",
+		predefinedAnswersTable.columnList("p."), predefinedAnswersTable.name, questionsTable.name, questionCategoriesTable.name)
+	err := s.db.SelectContext(ctx, &answers, query, categoryType)
+	return answers, err
+}
+
+func (s *sqliteService) RetrievePredefinedAnswerByID(ctx context.Context, id string) (model.PredefinedAnswer, error) {
+	return getRow[model.PredefinedAnswer](ctx, s.db, predefinedAnswersTable, "ID = ?", id)
+}
+
+func (s *sqliteService) UpdatePredefinedAnswer(ctx context.Context, answer model.PredefinedAnswer) error {
+	return updateRow(ctx, s.db, predefinedAnswersTable, answer)
+}
+
+// User answers
+
+func (s *sqliteService) SaveLaunchAnswers(ctx context.Context, launchID string, submissions []model.AnswerSubmission, actor string) error {
+	return s.saveUserAnswers(ctx, "LAUNCH_ID", launchID, submissions, actor)
+}
+
+func (s *sqliteService) SaveShieldAnswers(ctx context.Context, shieldID string, submissions []model.AnswerSubmission, actor string) error {
+	return s.saveUserAnswers(ctx, "SHIELD_ID", shieldID, submissions, actor)
+}
+
+// saveUserAnswers applies the submissions to the launch or shield (scopeCol) identified by
+// scopeID. User answer and selection IDs derive from the scope and question, so repeating a
+// submission that already succeeded changes nothing.
+func (s *sqliteService) saveUserAnswers(ctx context.Context, scopeCol, scopeID string, submissions []model.AnswerSubmission, actor string) error {
 	return s.withTx(ctx, func(tx *sqlx.Tx) error {
-		for _, a := range answers {
-			if err := insertRow(ctx, tx, answersTable, a); err != nil {
-				return err
-			}
+		existing, err := listRows[model.UserAnswer](ctx, tx, userAnswersTable, scopeCol+" = ?", scopeID)
+		if err != nil {
+			return err
 		}
-		return nil
-	})
-}
+		byQuestion := make(map[string]model.UserAnswer, len(existing))
+		for _, ua := range existing {
+			byQuestion[ua.QuestionID] = ua
+		}
 
-func (s *sqliteService) RetrieveAnswersByLaunchID(ctx context.Context, launchID string) ([]model.Answer, error) {
-	return listRows[model.Answer](ctx, s.db, answersTable, "LAUNCH_ID = ?", launchID)
-}
-
-func (s *sqliteService) RetrieveAnswersByShieldID(ctx context.Context, shieldID string) ([]model.Answer, error) {
-	return listRows[model.Answer](ctx, s.db, answersTable, "SHIELD_ID = ?", shieldID)
-}
-
-func (s *sqliteService) RetrieveAnswerByID(ctx context.Context, id string) (model.Answer, error) {
-	return getRow[model.Answer](ctx, s.db, answersTable, "ID = ?", id)
-}
-
-func (s *sqliteService) UpdateAnswers(ctx context.Context, answers []model.Answer) error {
-	return s.withTx(ctx, func(tx *sqlx.Tx) error {
-		for _, a := range answers {
-			// Retrieve current value before update for history
-			current, err := getRow[model.Answer](ctx, tx, answersTable, "ID = ?", a.ID)
-			if err != nil && !errors.Is(err, ErrNotFound) {
-				return err
+		for _, sub := range submissions {
+			ua, found := byQuestion[sub.QuestionID]
+			var previous []string
+			if found {
+				selections, err := listRows[model.UserAnswerSelection](ctx, tx, userSelectionsTable, "USER_ANSWER_ID = ?", ua.ID)
+				if err != nil {
+					return err
+				}
+				for _, sel := range selections {
+					previous = append(previous, sel.PredefinedAnswerID)
+				}
+			}
+			added, removed := diffIDs(previous, sub.PredefinedAnswerIDs)
+			if found && len(added) == 0 && len(removed) == 0 {
+				continue
 			}
 
-			// Create history record if reply changed
-			if err == nil && current.Reply != a.Reply {
-				history := model.AnswerHistory{
-					ID:            a.ID + "-" + time.Now().UTC().Format("20060102150405.000000"),
-					AnswerID:      a.ID,
-					QuestionID:    a.QuestionID,
-					LaunchID:      a.LaunchID,
-					ShieldID:      a.ShieldID,
-					PreviousReply: current.Reply,
-					NewReply:      a.Reply,
-					ChangedBy:     a.UpdatedBy,
-					ChangedAt:     time.Now().UTC().Format(time.RFC3339),
+			if found {
+				ua.SubmittedBy = actor
+				ua.UpdatedBy = actor
+				if err := updateRow(ctx, tx, userAnswersTable, ua); err != nil {
+					return err
 				}
-				if err := insertRow(ctx, tx, answerHistoryTable, history); err != nil {
+			} else {
+				ua = model.UserAnswer{
+					ID:          scopeID + "-" + sub.QuestionID,
+					QuestionID:  sub.QuestionID,
+					SubmittedBy: actor,
+					CreatedBy:   actor,
+					UpdatedBy:   actor,
+				}
+				if scopeCol == "LAUNCH_ID" {
+					ua.LaunchID = &scopeID
+				} else {
+					ua.ShieldID = &scopeID
+				}
+				if err := insertRow(ctx, tx, userAnswersTable, ua); err != nil {
 					return err
 				}
 			}
 
-			// Update the answer
-			if err := updateRow(ctx, tx, answersTable, a); err != nil {
-				return err
+			for _, id := range removed {
+				if _, err := tx.ExecContext(ctx, "DELETE FROM "+userSelectionsTable.name+" WHERE USER_ANSWER_ID = ? AND PREDEFINED_ANSWER_ID = ?", ua.ID, id); err != nil {
+					return err
+				}
+			}
+			for _, id := range added {
+				sel := model.UserAnswerSelection{ID: ua.ID + "-" + id, UserAnswerID: ua.ID, PredefinedAnswerID: id, CreatedBy: actor}
+				if err := insertRow(ctx, tx, userSelectionsTable, sel); err != nil {
+					return err
+				}
+			}
+
+			// One history row per change: removed answers are paired with added ones, and a
+			// removal without a replacement records an empty new answer.
+			changedAt := time.Now().UTC()
+			for i := 0; i < max(len(added), len(removed)); i++ {
+				h := model.UserAnswerHistory{
+					ID:           fmt.Sprintf("%s-%s-%d", ua.ID, changedAt.Format("20060102150405.000000"), i),
+					UserAnswerID: ua.ID,
+					QuestionID:   ua.QuestionID,
+					LaunchID:     ua.LaunchID,
+					ShieldID:     ua.ShieldID,
+					ChangedBy:    actor,
+					ChangedAt:    changedAt.Format(time.RFC3339Nano),
+				}
+				if i < len(removed) {
+					h.PreviousPredefinedAnswerID = &removed[i]
+				}
+				if i < len(added) {
+					h.NewPredefinedAnswerID = added[i]
+				}
+				if err := insertRow(ctx, tx, userAnswerHistoryTable, h); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
 	})
 }
 
-// AnswerHistory
-
-func (s *sqliteService) RetrieveAnswerHistoryByAnswerID(ctx context.Context, answerID string) ([]model.AnswerHistory, error) {
-	return listRows[model.AnswerHistory](ctx, s.db, answerHistoryTable, "ANSWER_ID = ? ORDER BY CHANGED_AT DESC", answerID)
+// diffIDs returns the IDs in next that are not in previous (added) and vice versa (removed).
+func diffIDs(previous, next []string) (added, removed []string) {
+	was := make(map[string]bool, len(previous))
+	for _, id := range previous {
+		was[id] = true
+	}
+	is := make(map[string]bool, len(next))
+	for _, id := range next {
+		is[id] = true
+		if !was[id] {
+			added = append(added, id)
+		}
+	}
+	for _, id := range previous {
+		if !is[id] {
+			removed = append(removed, id)
+		}
+	}
+	return added, removed
 }
 
-func (s *sqliteService) RetrieveAnswerHistoryByLaunchID(ctx context.Context, launchID string) ([]model.AnswerHistory, error) {
-	return listRows[model.AnswerHistory](ctx, s.db, answerHistoryTable, "LAUNCH_ID = ? ORDER BY CHANGED_AT DESC", launchID)
+func (s *sqliteService) RetrieveUserAnswersByLaunchID(ctx context.Context, launchID string) ([]model.UserAnswerDetail, error) {
+	return s.userAnswerDetails(ctx, "LAUNCH_ID", launchID)
 }
 
-func (s *sqliteService) RetrieveAnswerHistoryByShieldID(ctx context.Context, shieldID string) ([]model.AnswerHistory, error) {
-	return listRows[model.AnswerHistory](ctx, s.db, answerHistoryTable, "SHIELD_ID = ? ORDER BY CHANGED_AT DESC", shieldID)
+func (s *sqliteService) RetrieveUserAnswersByShieldID(ctx context.Context, shieldID string) ([]model.UserAnswerDetail, error) {
+	return s.userAnswerDetails(ctx, "SHIELD_ID", shieldID)
+}
+
+func (s *sqliteService) RetrieveUserAnswerByID(ctx context.Context, id string) (model.UserAnswerDetail, error) {
+	answers, err := s.userAnswerDetails(ctx, "ID", id)
+	if err != nil {
+		return model.UserAnswerDetail{}, err
+	}
+	if len(answers) == 0 {
+		return model.UserAnswerDetail{}, fmt.Errorf("%s %v: %w", userAnswersTable.name, []any{id}, ErrNotFound)
+	}
+	return answers[0], nil
+}
+
+// userAnswerDetails returns the user answers whose col equals val, each with its selections.
+func (s *sqliteService) userAnswerDetails(ctx context.Context, col, val string) ([]model.UserAnswerDetail, error) {
+	answers, err := listRows[model.UserAnswer](ctx, s.db, userAnswersTable, col+" = ?", val)
+	if err != nil {
+		return nil, err
+	}
+
+	selections := []model.UserAnswerSelection{}
+	query := fmt.Sprintf("SELECT %s FROM %s s JOIN %s a ON a.ID = s.USER_ANSWER_ID WHERE a.%s = ? ORDER BY s.CREATED_AT, s.ID",
+		userSelectionsTable.columnList("s."), userSelectionsTable.name, userAnswersTable.name, col)
+	if err := s.db.SelectContext(ctx, &selections, query, val); err != nil {
+		return nil, err
+	}
+	byAnswer := make(map[string][]model.UserAnswerSelection, len(answers))
+	for _, sel := range selections {
+		byAnswer[sel.UserAnswerID] = append(byAnswer[sel.UserAnswerID], sel)
+	}
+
+	details := make([]model.UserAnswerDetail, len(answers))
+	for i, ua := range answers {
+		details[i] = model.UserAnswerDetail{UserAnswer: ua, Selections: byAnswer[ua.ID]}
+		if details[i].Selections == nil {
+			details[i].Selections = []model.UserAnswerSelection{}
+		}
+	}
+	return details, nil
+}
+
+// User answer history
+
+func (s *sqliteService) RetrieveUserAnswerHistoryByUserAnswerID(ctx context.Context, userAnswerID string) ([]model.UserAnswerHistory, error) {
+	return s.userAnswerHistory(ctx, "USER_ANSWER_ID", userAnswerID)
+}
+
+func (s *sqliteService) RetrieveUserAnswerHistoryByLaunchID(ctx context.Context, launchID string) ([]model.UserAnswerHistory, error) {
+	return s.userAnswerHistory(ctx, "LAUNCH_ID", launchID)
+}
+
+func (s *sqliteService) RetrieveUserAnswerHistoryByShieldID(ctx context.Context, shieldID string) ([]model.UserAnswerHistory, error) {
+	return s.userAnswerHistory(ctx, "SHIELD_ID", shieldID)
+}
+
+func (s *sqliteService) userAnswerHistory(ctx context.Context, col, val string) ([]model.UserAnswerHistory, error) {
+	history := []model.UserAnswerHistory{}
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ? ORDER BY CHANGED_AT DESC, ID DESC",
+		userAnswerHistoryTable.columnList(""), userAnswerHistoryTable.name, col)
+	err := s.db.SelectContext(ctx, &history, query, val)
+	return history, err
 }
 
 // Launches
@@ -234,6 +392,10 @@ func (s *sqliteService) NewEvidences(ctx context.Context, evidences []model.Evid
 		}
 		return nil
 	})
+}
+
+func (s *sqliteService) RetrieveEvidencesByLaunchID(ctx context.Context, launchID string) ([]model.Evidence, error) {
+	return listRows[model.Evidence](ctx, s.db, evidencesTable, "LAUNCH_ID = ?", launchID)
 }
 
 func (s *sqliteService) RetrieveEvidencesByShieldID(ctx context.Context, shieldID string) ([]model.Evidence, error) {

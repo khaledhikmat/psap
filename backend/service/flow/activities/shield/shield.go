@@ -4,20 +4,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/khaledhikmat/psap/model"
+	"github.com/khaledhikmat/psap/service/answers"
 	"github.com/khaledhikmat/psap/service/data"
 	"go.temporal.io/sdk/temporal"
 )
 
 const shieldActor = "shield-workflow"
 
-// Create creates a new Shield record, creates unanswered Answers for all shield questions,
-// and creates empty Evidence records for all shield categories. It updates the asset's
-// LastShieldID and returns the shield ID and counts.
-func (a *Activities) Create(ctx context.Context, req ShieldCreationRequest) (ShieldCreationResult, error) {
+// Application error types of submissions that cannot be saved. Retrying does not help, so
+// activities return them as non-retryable errors.
+const (
+	ErrInvalidAnswer   = "InvalidAnswer"
+	ErrInvalidEvidence = "InvalidEvidence"
+)
+
+// CreateShield creates a new Shield record and updates the asset's LastShieldID. Answers and
+// evidences are created as the business owner submits them. It returns the shield ID, the
+// number of shield questions and how many of them require evidence.
+func (a *Activities) CreateShield(ctx context.Context, req ShieldCreationRequest) (ShieldCreationResult, error) {
 	shieldID := uuid.NewString()
 
 	asset, err := a.DataSvc.RetrieveAssetByID(ctx, req.AssetID)
@@ -25,7 +32,6 @@ func (a *Activities) Create(ctx context.Context, req ShieldCreationRequest) (Shi
 		return ShieldCreationResult{}, err
 	}
 
-	// Create Shield record
 	err = a.DataSvc.NewShield(ctx, model.Shield{
 		ID:        shieldID,
 		AssetID:   req.AssetID,
@@ -37,52 +43,11 @@ func (a *Activities) Create(ctx context.Context, req ShieldCreationRequest) (Shi
 		return ShieldCreationResult{}, err
 	}
 
-	// Create unanswered Answers for all shield questions
 	questions, err := a.DataSvc.RetrieveQuestionsByCategoryType(ctx, model.ShieldQuestionCategory)
 	if err != nil {
 		return ShieldCreationResult{}, err
 	}
-	answers := make([]model.Answer, len(questions))
-	for i, q := range questions {
-		answers[i] = model.Answer{
-			ID:         shieldID + "-" + q.ID,
-			QuestionID: q.ID,
-			ShieldID:   &shieldID,
-			Reply:      model.UnansweredReply,
-			CreatedBy:  shieldActor,
-			UpdatedBy:  shieldActor,
-		}
-	}
-	err = a.DataSvc.NewAnswers(ctx, answers)
-	if err != nil && !errors.Is(err, data.ErrAlreadyExists) {
-		return ShieldCreationResult{}, err
-	}
 
-	// Get all shield question categories to create empty evidences
-	categories, err := a.DataSvc.RetrieveQuestionCategoriesByType(ctx, model.ShieldQuestionCategory)
-	if err != nil {
-		return ShieldCreationResult{}, err
-	}
-
-	// Create empty Evidence records for each category
-	evidences := make([]model.Evidence, len(categories))
-	for i, cat := range categories {
-		evidences[i] = model.Evidence{
-			ID:                 shieldID + "-" + cat.ID,
-			QuestionCategoryID: cat.ID,
-			ShieldID:           shieldID,
-			Description:        "",
-			URL:                "",
-			CreatedBy:          shieldActor,
-			UpdatedBy:          shieldActor,
-		}
-	}
-	err = a.DataSvc.NewEvidences(ctx, evidences)
-	if err != nil && !errors.Is(err, data.ErrAlreadyExists) {
-		return ShieldCreationResult{}, err
-	}
-
-	// Update asset's LastShieldID
 	asset.LastShieldID = &shieldID
 	asset.UpdatedBy = shieldActor
 	if err := a.DataSvc.UpdateAsset(ctx, asset); err != nil {
@@ -90,142 +55,152 @@ func (a *Activities) Create(ctx context.Context, req ShieldCreationRequest) (Shi
 	}
 
 	return ShieldCreationResult{
-		ShieldID:   shieldID,
-		Questions:  len(questions),
-		Categories: len(categories),
+		ShieldID:         shieldID,
+		Questions:        len(questions),
+		EvidenceRequired: countEvidenceRequired(questions),
 	}, nil
 }
 
-// SaveAnswers records the given replies on the shield's answers. Partial submissions are
-// allowed: questions not in the request are left unchanged. This can be called multiple times.
-func (a *Activities) SaveAnswers(ctx context.Context, req ShieldAnswersSaveRequest) error {
-	answers, err := a.DataSvc.RetrieveAnswersByShieldID(ctx, req.ShieldID)
+// SaveShieldAnswers records the selected predefined answers of the submitted questions. Partial
+// submissions are allowed: questions not in the request are left unchanged. This can be
+// called multiple times.
+func (a *Activities) SaveShieldAnswers(ctx context.Context, req ShieldAnswersSaveRequest) (ShieldAnswersSaveResult, error) {
+	questions, err := a.DataSvc.RetrieveQuestionsByCategoryType(ctx, model.ShieldQuestionCategory)
 	if err != nil {
-		return err
+		return ShieldAnswersSaveResult{}, err
+	}
+	predefined, err := a.DataSvc.RetrievePredefinedAnswersByCategoryType(ctx, model.ShieldQuestionCategory)
+	if err != nil {
+		return ShieldAnswersSaveResult{}, err
+	}
+	if err := answers.Validate(questions, predefined, req.Answers); err != nil {
+		return ShieldAnswersSaveResult{}, temporal.NewNonRetryableApplicationError(err.Error(), ErrInvalidAnswer, err)
 	}
 
-	changed := []model.Answer{}
-	for i := range answers {
-		reply, ok := req.Answers[answers[i].QuestionID]
-		if !ok {
-			continue
-		}
-		normalized, err := NormalizeReply(reply)
-		if err != nil {
-			return temporal.NewNonRetryableApplicationError(err.Error(), "InvalidReply", err)
-		}
-		if answers[i].Reply == normalized {
-			continue
-		}
-		answers[i].Reply = normalized
-		answers[i].UpdatedBy = shieldActor
-		changed = append(changed, answers[i])
+	if err := a.DataSvc.SaveShieldAnswers(ctx, req.ShieldID, req.Answers, actorOr(req.UpdatedBy)); err != nil {
+		return ShieldAnswersSaveResult{}, err
 	}
-
-	if len(changed) == 0 {
-		return nil
+	saved, err := a.DataSvc.RetrieveUserAnswersByShieldID(ctx, req.ShieldID)
+	if err != nil {
+		return ShieldAnswersSaveResult{}, err
 	}
-	return a.DataSvc.UpdateAnswers(ctx, changed)
+	return ShieldAnswersSaveResult{Answered: answers.Answered(saved), Questions: len(questions)}, nil
 }
 
-// FinalizeAnswers records any last replies, then marks every unanswered question as NO and
-// locks the answers.
-func (a *Activities) FinalizeAnswers(ctx context.Context, req ShieldAnswersFinalizeRequest) error {
-	if err := a.SaveAnswers(ctx, ShieldAnswersSaveRequest{
-		ShieldID: req.ShieldID,
-		Answers:  req.Answers,
-	}); err != nil {
-		return err
-	}
-
-	answers, err := a.DataSvc.RetrieveAnswersByShieldID(ctx, req.ShieldID)
-	if err != nil {
-		return err
-	}
-
-	changed := []model.Answer{}
-	for i := range answers {
-		if answers[i].Reply == model.UnansweredReply {
-			answers[i].Reply = model.NoReply
-			answers[i].UpdatedBy = shieldActor
-			changed = append(changed, answers[i])
-		}
-	}
-
-	if len(changed) > 0 {
-		if err := a.DataSvc.UpdateAnswers(ctx, changed); err != nil {
-			return err
-		}
-	}
-
-	return nil
+// FinalizeAnswers records any last answers and locks them.
+func (a *Activities) FinalizeAnswers(ctx context.Context, req ShieldAnswersFinalizeRequest) (ShieldAnswersSaveResult, error) {
+	return a.SaveShieldAnswers(ctx, ShieldAnswersSaveRequest(req))
 }
 
-// SaveEvidences records the given evidences for the shield's categories. Partial submissions
-// are allowed: categories not in the request are left unchanged. This can be called multiple times.
-func (a *Activities) SaveEvidences(ctx context.Context, req ShieldEvidencesSaveRequest) error {
+// SaveEvidences records the given evidences, each for an already answered question. Partial
+// submissions are allowed: questions not in the request are left unchanged. This can be
+// called multiple times.
+func (a *Activities) SaveEvidences(ctx context.Context, req ShieldEvidencesSaveRequest) (ShieldEvidencesSaveResult, error) {
+	questions, err := a.DataSvc.RetrieveQuestionsByCategoryType(ctx, model.ShieldQuestionCategory)
+	if err != nil {
+		return ShieldEvidencesSaveResult{}, err
+	}
+	known := make(map[string]bool, len(questions))
+	for _, q := range questions {
+		known[q.ID] = true
+	}
+	answered, err := a.DataSvc.RetrieveUserAnswersByShieldID(ctx, req.ShieldID)
+	if err != nil {
+		return ShieldEvidencesSaveResult{}, err
+	}
+	answerByQuestion := make(map[string]model.UserAnswerDetail, len(answered))
+	for _, ua := range answered {
+		answerByQuestion[ua.QuestionID] = ua
+	}
 	evidences, err := a.DataSvc.RetrieveEvidencesByShieldID(ctx, req.ShieldID)
 	if err != nil {
-		return err
+		return ShieldEvidencesSaveResult{}, err
+	}
+	byAnswer := make(map[string]model.Evidence, len(evidences))
+	for _, e := range evidences {
+		byAnswer[e.UserAnswerID] = e
 	}
 
+	actor := actorOr(req.UpdatedBy)
+	created := []model.Evidence{}
 	changed := []model.Evidence{}
-	for i := range evidences {
-		evidData, ok := req.Evidences[evidences[i].QuestionCategoryID]
-		if !ok {
+	for _, sub := range req.Evidences {
+		if !known[sub.QuestionID] {
+			return ShieldEvidencesSaveResult{}, temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("%q is not a shield question", sub.QuestionID), ErrInvalidEvidence, nil)
+		}
+		ua, ok := answerByQuestion[sub.QuestionID]
+		if !ok || len(ua.Selections) == 0 {
+			return ShieldEvidencesSaveResult{}, temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("question %q has no answer to attach evidence to", sub.QuestionID), ErrInvalidEvidence, nil)
+		}
+
+		existing, found := byAnswer[ua.ID]
+		if !found {
+			shieldID := req.ShieldID
+			created = append(created, model.Evidence{
+				ID:           ua.ID + "-evidence",
+				QuestionID:   sub.QuestionID,
+				UserAnswerID: ua.ID,
+				ShieldID:     &shieldID,
+				Description:  sub.Description,
+				URL:          sub.URL,
+				CreatedBy:    actor,
+				UpdatedBy:    actor,
+			})
 			continue
 		}
-		// Only update if changed
-		if evidences[i].Description == evidData.Description && evidences[i].URL == evidData.URL {
+		if existing.Description == sub.Description && existing.URL == sub.URL {
 			continue
 		}
-		evidences[i].Description = evidData.Description
-		evidences[i].URL = evidData.URL
-		evidences[i].UpdatedBy = shieldActor
-		changed = append(changed, evidences[i])
+		existing.Description = sub.Description
+		existing.URL = sub.URL
+		existing.UpdatedBy = actor
+		changed = append(changed, existing)
 	}
 
-	if len(changed) == 0 {
-		return nil
+	if len(created) > 0 {
+		if err := a.DataSvc.NewEvidences(ctx, created); err != nil {
+			return ShieldEvidencesSaveResult{}, err
+		}
 	}
-	return a.DataSvc.UpdateEvidences(ctx, changed)
+	if len(changed) > 0 {
+		if err := a.DataSvc.UpdateEvidences(ctx, changed); err != nil {
+			return ShieldEvidencesSaveResult{}, err
+		}
+	}
+
+	evidences, err = a.DataSvc.RetrieveEvidencesByShieldID(ctx, req.ShieldID)
+	if err != nil {
+		return ShieldEvidencesSaveResult{}, err
+	}
+	return evidenceStatus(questions, evidences), nil
 }
 
 // FinalizeEvidences records any last evidences and locks them.
-func (a *Activities) FinalizeEvidences(ctx context.Context, req ShieldEvidencesFinalizeRequest) error {
-	return a.SaveEvidences(ctx, ShieldEvidencesSaveRequest{
-		ShieldID:  req.ShieldID,
-		Evidences: req.Evidences,
-	})
+func (a *Activities) FinalizeEvidences(ctx context.Context, req ShieldEvidencesFinalizeRequest) (ShieldEvidencesSaveResult, error) {
+	return a.SaveEvidences(ctx, ShieldEvidencesSaveRequest(req))
 }
 
-// CalculateScore sums up the weights of all YES answers to compute the shield score.
+// CalculateScore sums up the points of the shield's selected answers to compute the shield score.
 func (a *Activities) CalculateScore(ctx context.Context, req ShieldScoreCalculationRequest) (ShieldScoreCalculationResult, error) {
-	answers, err := a.DataSvc.RetrieveAnswersByShieldID(ctx, req.ShieldID)
+	saved, err := a.DataSvc.RetrieveUserAnswersByShieldID(ctx, req.ShieldID)
+	if err != nil {
+		return ShieldScoreCalculationResult{}, err
+	}
+	predefined, err := a.DataSvc.RetrievePredefinedAnswersByCategoryType(ctx, model.ShieldQuestionCategory)
 	if err != nil {
 		return ShieldScoreCalculationResult{}, err
 	}
 
-	score := 0
-	for _, answer := range answers {
-		if answer.Reply != model.YesReply {
-			continue
-		}
-		question, err := a.DataSvc.RetrieveQuestionByID(ctx, answer.QuestionID)
-		if err != nil {
-			return ShieldScoreCalculationResult{}, err
-		}
-		score += question.Weight
-	}
-
 	return ShieldScoreCalculationResult{
-		Score: score,
+		Score: answers.Points(saved, predefined),
 	}, nil
 }
 
-// Persist stores the shield's current score, state and nudge counts. Once evidences are
+// PersistShield stores the shield's current score, state and nudge counts. Once evidences are
 // finalized, it also updates the asset to 'shielded' state.
-func (a *Activities) Persist(ctx context.Context, req ShieldPersistRequest) error {
+func (a *Activities) PersistShield(ctx context.Context, req ShieldPersistRequest) error {
 	shield, err := a.DataSvc.RetrieveShieldByID(ctx, req.ShieldID)
 	if errors.Is(err, data.ErrNotFound) {
 		// E.g. the shield was cancelled before Create stored it; retrying will not help.
@@ -257,16 +232,40 @@ func (a *Activities) Persist(ctx context.Context, req ShieldPersistRequest) erro
 	return a.DataSvc.UpdateAsset(ctx, asset)
 }
 
-// NormalizeReply accepts yes/no in any case (and "" for unanswered) and returns the stored form.
-func NormalizeReply(reply string) (string, error) {
-	switch strings.ToUpper(strings.TrimSpace(reply)) {
-	case "":
-		return model.UnansweredReply, nil
-	case "YES", "Y":
-		return model.YesReply, nil
-	case "NO", "N":
-		return model.NoReply, nil
-	default:
-		return "", fmt.Errorf("invalid reply %q; must be YES or NO", reply)
+func actorOr(updatedBy string) string {
+	if updatedBy == "" {
+		return shieldActor
 	}
+	return updatedBy
+}
+
+func countEvidenceRequired(questions []model.Question) int {
+	n := 0
+	for _, q := range questions {
+		if q.EvidenceRequired {
+			n++
+		}
+	}
+	return n
+}
+
+// evidenceStatus counts the questions that require evidence, and how many of them have some.
+func evidenceStatus(questions []model.Question, evidences []model.Evidence) ShieldEvidencesSaveResult {
+	provided := make(map[string]bool, len(evidences))
+	for _, e := range evidences {
+		if e.Description != "" || e.URL != "" {
+			provided[e.QuestionID] = true
+		}
+	}
+	res := ShieldEvidencesSaveResult{}
+	for _, q := range questions {
+		if !q.EvidenceRequired {
+			continue
+		}
+		res.Required++
+		if provided[q.ID] {
+			res.Provided++
+		}
+	}
+	return res
 }

@@ -113,6 +113,13 @@ func (c *Controller) Routes(rootRouter *gin.RouterGroup) {
 	{
 		questionsRouter.GET("", c.listQuestions)
 		questionsRouter.GET("/:id", c.showQuestion)
+		questionsRouter.GET("/:id/answers", c.listQuestionPredefinedAnswers)
+	}
+
+	// Predefined Answers
+	predefinedAnswersRouter := rootRouter.Group("/predefined-answers")
+	{
+		predefinedAnswersRouter.GET("", c.listPredefinedAnswers)
 	}
 
 	// Workers

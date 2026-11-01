@@ -5,14 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/khaledhikmat/psap/model"
 	"github.com/khaledhikmat/psap/service"
+	"github.com/khaledhikmat/psap/service/answers"
 	"github.com/khaledhikmat/psap/service/data"
 	"github.com/khaledhikmat/psap/service/flow"
-	launchactivities "github.com/khaledhikmat/psap/service/flow/activities/launch"
 	"github.com/khaledhikmat/psap/service/flow/helpers"
 	"github.com/khaledhikmat/psap/service/flow/workflows"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -25,11 +26,11 @@ Usage: MODE_PROC=cli go run . <command> [args]
 
 Data:
   assets                                  list assets with their business owner and manager
-  questions                               list launch questions with their IDs and weights
-  shield-questions                        list shield questions with their IDs and weights
+  questions                               list launch questions with their answer choices and points
+  shield-questions                        list shield questions with their answer choices and points
   tiers                                   list tiers and their point ranges
-  answers  <assetID>                      list the answers of the asset's current launch
-  shield-answers <assetID>                list the answers of the asset's current shield
+  answers  <assetID>                      list the selected answers of the asset's current launch
+  shield-answers <assetID>                list the selected answers of the asset's current shield
   evidences <assetID>                     list the evidences of the asset's current shield
   answer-history <assetID>                list answer change history for the asset's current launch
   shield-answer-history <assetID>         list answer change history for the asset's current shield
@@ -37,19 +38,20 @@ Data:
 Launch commands:
   start    <assetID>                      start a launch
   query    <assetID>                      print the launch's current state
-  submit   <assetID> questionID=yes|no…   submit (partial) answers
-  finalize <assetID> [questionID=yes|no…] save any last answers, lock them and calculate the tier
-                                          (unanswered questions count as NO)
+  submit   <assetID> questionID=answerID[,answerID…]…   submit (partial) answers; several
+                                          answerIDs only for questions that allow multiple answers
+  finalize <assetID> [questionID=answerID…] save any last answers, lock them and calculate the tier
+                                          (unanswered questions earn no points)
   validate <assetID> [tierID]             accept the calculated tier, or override it
   wait     <assetID>                      block until the launch completes, print result
 
 Shield commands:
   shield-start <assetID>                  start a shield
   shield-query <assetID>                  print the shield's current state
-  shield-submit-answers <assetID> questionID=yes|no…   submit (partial) shield answers
-  shield-finalize-answers <assetID> [questionID=yes|no…] finalize shield answers
-  shield-submit-evidences <assetID> categoryID=desc:url… submit (partial) evidences
-  shield-finalize-evidences <assetID> [categoryID=desc:url…] finalize evidences
+  shield-submit-answers <assetID> questionID=answerID[,answerID…]…   submit (partial) shield answers
+  shield-finalize-answers <assetID> [questionID=answerID…] finalize shield answers
+  shield-submit-evidences <assetID> questionID=desc:url… submit (partial) evidences for answered questions
+  shield-finalize-evidences <assetID> [questionID=desc:url…] finalize evidences
   shield-wait <assetID>                   block until the shield completes, print result
 
 Scenarios (assetID optional, defaults to the first asset):
@@ -171,7 +173,7 @@ func (c *launchCLI) run(cmd string, args []string) error {
 		}
 		if cmd == "submit" {
 			if len(answers) == 0 {
-				return errors.New("missing questionID=yes|no answers")
+				return errors.New("missing questionID=answerID answers")
 			}
 			return c.submit(asset, answers)
 		}
@@ -211,12 +213,12 @@ func (c *launchCLI) run(cmd string, args []string) error {
 		if err != nil {
 			return err
 		}
-		answers, err := parseAnswersMap(args[1:])
+		answers, err := parseAnswers(args[1:])
 		if err != nil {
 			return err
 		}
 		if len(answers) == 0 {
-			return errors.New("missing questionID=yes|no answers")
+			return errors.New("missing questionID=answerID answers")
 		}
 		return c.shieldSubmitAnswers(asset, answers)
 	case "shield-finalize-answers":
@@ -224,7 +226,7 @@ func (c *launchCLI) run(cmd string, args []string) error {
 		if err != nil {
 			return err
 		}
-		answers, err := parseAnswersMap(args[1:])
+		answers, err := parseAnswers(args[1:])
 		if err != nil {
 			return err
 		}
@@ -239,7 +241,7 @@ func (c *launchCLI) run(cmd string, args []string) error {
 			return err
 		}
 		if len(evidences) == 0 {
-			return errors.New("missing categoryID=description:url evidences")
+			return errors.New("missing questionID=description:url evidences")
 		}
 		return c.shieldSubmitEvidences(asset, evidences)
 	case "shield-finalize-evidences":
@@ -291,6 +293,10 @@ func (c *launchCLI) happyScenario(asset string) error {
 	if len(questions) < 6 {
 		return fmt.Errorf("need at least 6 launch questions, have %d", len(questions))
 	}
+	byQuestion, predefined, err := c.predefinedAnswers(model.LaunchQuestionCategory)
+	if err != nil {
+		return err
+	}
 
 	if err := c.start(asset); err != nil {
 		return err
@@ -304,30 +310,53 @@ func (c *launchCLI) happyScenario(asset string) error {
 	launchID := r.ID
 
 	// Invalid answers are rejected before reaching the workflow.
-	if err := expectErr(c.flow.SubmitLaunchAnswers(c.ctx, asset, []model.Answer{{QuestionID: "no-such-question", Reply: "YES"}}),
+	if err := expectErr(c.flow.SubmitLaunchAnswers(c.ctx, asset, []model.AnswerSubmission{{QuestionID: "no-such-question", PredefinedAnswerIDs: []string{"x"}}}),
 		flow.ErrInvalidAnswer, "unknown question"); err != nil {
 		return err
 	}
-	if err := expectErr(c.flow.SubmitLaunchAnswers(c.ctx, asset, []model.Answer{{QuestionID: questions[0].ID, Reply: "maybe"}}),
-		flow.ErrInvalidAnswer, "invalid reply"); err != nil {
+	if err := expectErr(c.flow.SubmitLaunchAnswers(c.ctx, asset, []model.AnswerSubmission{{QuestionID: questions[0].ID, PredefinedAnswerIDs: []string{"no-such-answer"}}}),
+		flow.ErrInvalidAnswer, "unknown answer"); err != nil {
 		return err
+	}
+	if err := expectErr(c.flow.SubmitLaunchAnswers(c.ctx, asset, []model.AnswerSubmission{{QuestionID: questions[0].ID, PredefinedAnswerIDs: []string{byQuestion[questions[1].ID][0].ID}}}),
+		flow.ErrInvalidAnswer, "answer of another question"); err != nil {
+		return err
+	}
+	for _, q := range questions {
+		if q.AllowMultipleAnswers {
+			continue
+		}
+		both := []string{byQuestion[q.ID][0].ID, byQuestion[q.ID][1].ID}
+		if err := expectErr(c.flow.SubmitLaunchAnswers(c.ctx, asset, []model.AnswerSubmission{{QuestionID: q.ID, PredefinedAnswerIDs: both}}),
+			flow.ErrInvalidAnswer, "several answers to a single-answer question"); err != nil {
+			return err
+		}
+		break
+	}
+	// A question that allows several answers accepts them, and a repeated submission is harmless.
+	for _, q := range questions {
+		if !q.AllowMultipleAnswers {
+			continue
+		}
+		both := []string{byQuestion[q.ID][0].ID, byQuestion[q.ID][1].ID}
+		if err := c.submit(asset, []model.AnswerSubmission{{QuestionID: q.ID, PredefinedAnswerIDs: both}}); err != nil {
+			return err
+		}
+		if err := c.expectStoredAnswers(launchID, []model.AnswerSubmission{{QuestionID: q.ID, PredefinedAnswerIDs: both}}); err != nil {
+			return err
+		}
+		break
 	}
 	if err := expectErr(c.flow.ValidateTier(c.ctx, asset, ""), flow.ErrInvalidLaunchState, "validate before finalize"); err != nil {
 		return err
 	}
 
-	// Answer about two thirds YES. Submit the first half now, the rest (minus 3 left blank,
-	// which count as NO) when finalizing.
-	all := make([]model.Answer, len(questions))
-	for i, q := range questions {
-		reply := model.YesReply
-		if i%3 == 2 {
-			reply = model.NoReply
-		}
-		all[i] = model.Answer{QuestionID: q.ID, Reply: reply}
-	}
+	// Pick a different predefined answer for each question. Submit the first half now, the
+	// rest (minus 2 left blank, which earn no points) when finalizing. This replaces the
+	// two answers selected above for a multiple-answer question.
+	all := pickAnswers(questions, byQuestion, func(i, n int) int { return i % n })
 	half := len(all) / 2
-	first, rest := all[:half], all[half:len(all)-3]
+	first, rest := all[:half], all[half:len(all)-2]
 
 	if err := c.submit(asset, first); err != nil {
 		return err
@@ -341,8 +370,29 @@ func (c *launchCLI) happyScenario(asset string) error {
 		return err
 	}
 
-	submitted := append(append([]model.Answer{}, first...), rest...)
-	wantPoints := launchactivities.Points(questions, submitted)
+	// Changing an answer is recorded in the history: at least one entry per first answer, plus the change.
+	changed := model.AnswerSubmission{
+		QuestionID:          first[0].QuestionID,
+		PredefinedAnswerIDs: []string{byQuestion[first[0].QuestionID][1].ID},
+	}
+	if err := c.submit(asset, []model.AnswerSubmission{changed}); err != nil {
+		return err
+	}
+	first[0] = changed
+	if err := c.expectStoredAnswers(launchID, first); err != nil {
+		return err
+	}
+	history, err := c.data.RetrieveUserAnswerHistoryByLaunchID(c.ctx, launchID)
+	if err != nil {
+		return err
+	}
+	if err := expect(len(history) >= half+1, "answer history has %d entries, want at least %d", len(history), half+1); err != nil {
+		return err
+	}
+	fmt.Printf("  ✓ answer history: %d entries\n", len(history))
+
+	submitted := append(append([]model.AnswerSubmission{}, first...), rest...)
+	wantPoints := submissionPoints(submitted, predefined)
 	wantTier, err := c.data.RetrieveTierByPoints(c.ctx, wantPoints)
 	if err != nil {
 		return err
@@ -402,10 +452,11 @@ func (c *launchCLI) relaunchScenario(asset string) error {
 	if err != nil {
 		return err
 	}
-	partial := []model.Answer{}
-	for _, q := range questions[:5] {
-		partial = append(partial, model.Answer{QuestionID: q.ID, Reply: model.YesReply})
+	byQuestion, _, err := c.predefinedAnswers(model.LaunchQuestionCategory)
+	if err != nil {
+		return err
 	}
+	partial := pickAnswers(questions[:5], byQuestion, func(i, n int) int { return 0 })
 	if err := c.submit(asset, partial); err != nil {
 		return err
 	}
@@ -574,15 +625,12 @@ func (c *launchCLI) shieldHappyScenario(asset string) error {
 	if err != nil {
 		return err
 	}
-	categories, err := c.data.RetrieveQuestionCategoriesByType(c.ctx, model.ShieldQuestionCategory)
-	if err != nil {
-		return err
-	}
 	if len(questions) < 3 {
 		return fmt.Errorf("need at least 3 shield questions, have %d", len(questions))
 	}
-	if len(categories) < 2 {
-		return fmt.Errorf("need at least 2 shield categories, have %d", len(categories))
+	byQuestion, predefined, err := c.predefinedAnswers(model.ShieldQuestionCategory)
+	if err != nil {
+		return err
 	}
 
 	if err := c.shieldStart(asset); err != nil {
@@ -596,13 +644,15 @@ func (c *launchCLI) shieldHappyScenario(asset string) error {
 	}
 	shieldID := r.ID
 
-	// Submit partial answers (first half YES, leave rest for finalize)
-	half := len(questions) / 2
-	partialAnswers := make(map[string]string)
-	for i := 0; i < half; i++ {
-		partialAnswers[questions[i].ID] = "yes"
+	if err := expectErr(c.flow.SubmitShieldAnswers(c.ctx, asset, []model.AnswerSubmission{{QuestionID: "no-such-question", PredefinedAnswerIDs: []string{"x"}}}),
+		flow.ErrInvalidAnswer, "unknown question"); err != nil {
+		return err
 	}
-	if err := c.shieldSubmitAnswers(asset, partialAnswers); err != nil {
+
+	// Answer every question: the first half now, the rest when finalizing.
+	half := len(questions) / 2
+	all := pickAnswers(questions, byQuestion, func(i, n int) int { return (i * 2) % n })
+	if err := c.shieldSubmitAnswers(asset, all[:half]); err != nil {
 		return err
 	}
 	if _, err := c.waitForShield(asset, fmt.Sprintf("%d answered", half), func(r workflows.ShieldResult) bool {
@@ -611,28 +661,34 @@ func (c *launchCLI) shieldHappyScenario(asset string) error {
 		return err
 	}
 
-	// Finalize answers with remaining questions as NO
-	remainingAnswers := make(map[string]string)
-	for i := half; i < len(questions)-1; i++ {
-		remainingAnswers[questions[i].ID] = "no"
+	// Evidence can only be attached to an answered question, and answers can only be finalized
+	// once every question is answered.
+	if err := expectErr(c.flow.SubmitShieldEvidences(c.ctx, asset, []model.EvidenceSubmission{{QuestionID: questions[half].ID, Description: "x"}}),
+		flow.ErrInvalidAnswer, "evidence for an unanswered question"); err != nil {
+		return err
 	}
-	if err := c.shieldFinalizeAnswers(asset, remainingAnswers); err != nil {
+	if err := expectErr(c.flow.FinalizeShieldAnswers(c.ctx, asset, all[half:len(all)-1]),
+		flow.ErrIncompleteShield, "finalize with a question unanswered"); err != nil {
+		return err
+	}
+	if err := c.shieldFinalizeAnswers(asset, all[half:]); err != nil {
 		return err
 	}
 	if _, err := c.waitForShield(asset, "answers finalized, waiting for evidences", func(r workflows.ShieldResult) bool {
-		return r.State == model.WaitingForEvidencesShieldState
+		return r.State == model.WaitingForEvidencesShieldState && r.Answered == len(questions)
 	}); err != nil {
 		return err
 	}
 
-	// Submit partial evidences (first category)
-	partialEvidences := map[string]model.Evidence{
-		categories[0].ID: {
-			Description: "Test evidence 1",
-			URL:         "https://example.com/evidence1",
-		},
+	// Submit partial evidences (first question), then try to finalize without the rest.
+	evidence := func(i int) model.EvidenceSubmission {
+		return model.EvidenceSubmission{
+			QuestionID:  questions[i].ID,
+			Description: fmt.Sprintf("Test evidence %d", i+1),
+			URL:         fmt.Sprintf("https://example.com/evidence%d", i+1),
+		}
 	}
-	if err := c.shieldSubmitEvidences(asset, partialEvidences); err != nil {
+	if err := c.shieldSubmitEvidences(asset, []model.EvidenceSubmission{evidence(0)}); err != nil {
 		return err
 	}
 	if _, err := c.waitForShield(asset, "1 evidence submitted", func(r workflows.ShieldResult) bool {
@@ -640,14 +696,13 @@ func (c *launchCLI) shieldHappyScenario(asset string) error {
 	}); err != nil {
 		return err
 	}
-
-	// Finalize evidences with remaining categories
-	remainingEvidences := make(map[string]model.Evidence)
-	for i := 1; i < len(categories); i++ {
-		remainingEvidences[categories[i].ID] = model.Evidence{
-			Description: fmt.Sprintf("Test evidence %d", i+1),
-			URL:         fmt.Sprintf("https://example.com/evidence%d", i+1),
-		}
+	remainingEvidences := []model.EvidenceSubmission{}
+	for i := 1; i < len(questions); i++ {
+		remainingEvidences = append(remainingEvidences, evidence(i))
+	}
+	if err := expectErr(c.flow.FinalizeShieldEvidences(c.ctx, asset, remainingEvidences[1:]),
+		flow.ErrIncompleteShield, "finalize with evidence missing"); err != nil {
+		return err
 	}
 	if err := c.shieldFinalizeEvidences(asset, remainingEvidences); err != nil {
 		return err
@@ -661,7 +716,19 @@ func (c *launchCLI) shieldHappyScenario(asset string) error {
 	if res.State != model.CompletedShieldState {
 		return fmt.Errorf("expected state %s, got %s", model.CompletedShieldState, res.State)
 	}
+	wantScore := submissionPoints(all, predefined)
+	if err := expect(res.Score == wantScore, "shield score %d, want %d", res.Score, wantScore); err != nil {
+		return err
+	}
 	fmt.Printf("  ✓ shield completed with score=%d\n", res.Score)
+	stored, err := c.data.RetrieveEvidencesByShieldID(c.ctx, shieldID)
+	if err != nil {
+		return err
+	}
+	if err := expect(len(stored) == len(questions), "stored %d evidences, want %d", len(stored), len(questions)); err != nil {
+		return err
+	}
+	fmt.Printf("  ✓ stored %d evidences\n", len(stored))
 
 	// Verify asset is now shielded
 	a, err := c.data.RetrieveAssetByID(c.ctx, asset)
@@ -695,7 +762,12 @@ func (c *launchCLI) listAssets() error {
 }
 
 func (c *launchCLI) listQuestions() error {
-	categories, err := c.data.RetrieveQuestionCategoriesByType(c.ctx, model.LaunchQuestionCategory)
+	return c.printQuestions(model.LaunchQuestionCategory)
+}
+
+// printQuestions lists the categories of the given type with their questions and answer choices.
+func (c *launchCLI) printQuestions(t model.QuestionCategoryType) error {
+	categories, err := c.data.RetrieveQuestionCategoriesByType(c.ctx, t)
 	if err != nil {
 		return err
 	}
@@ -707,11 +779,31 @@ func (c *launchCLI) listQuestions() error {
 			return err
 		}
 		for _, q := range questions {
-			fmt.Printf("  %-26s w=%d  %s\n", q.ID, q.Weight, q.Text)
-			total += q.Weight
+			flags := ""
+			if q.AllowMultipleAnswers {
+				flags += " [multiple]"
+			}
+			if q.EvidenceRequired {
+				flags += " [evidence]"
+			}
+			fmt.Printf("  %s%s  %s\n", q.ID, flags, q.Text)
+			choices, err := c.data.RetrievePredefinedAnswersByQuestionID(c.ctx, q.ID)
+			if err != nil {
+				return err
+			}
+			best := 0
+			for _, a := range choices {
+				fmt.Printf("      %-30s %3d pts  %s\n", a.ID, a.Points, a.Text)
+				if q.AllowMultipleAnswers {
+					best += max(a.Points, 0)
+				} else {
+					best = max(best, a.Points)
+				}
+			}
+			total += best
 		}
 	}
-	fmt.Printf("total weight: %d\n", total)
+	fmt.Printf("max points: %d\n", total)
 	return nil
 }
 
@@ -734,39 +826,30 @@ func (c *launchCLI) listAnswers(asset string) error {
 	if a.LastLaunchID == nil || *a.LastLaunchID == "" {
 		return fmt.Errorf("asset %s has not been launched", asset)
 	}
-	answers, err := c.data.RetrieveAnswersByLaunchID(c.ctx, *a.LastLaunchID)
+	answers, err := c.data.RetrieveUserAnswersByLaunchID(c.ctx, *a.LastLaunchID)
 	if err != nil {
 		return err
 	}
-	for _, ans := range answers {
-		reply := ans.Reply
-		if reply == model.UnansweredReply {
-			reply = "-"
-		}
-		fmt.Printf("  %-26s %s\n", ans.QuestionID, reply)
-	}
+	printUserAnswers(answers)
 	return nil
 }
 
+// printUserAnswers prints each answered question with the predefined answers selected for it.
+func printUserAnswers(answers []model.UserAnswerDetail) {
+	if len(answers) == 0 {
+		fmt.Println("  no answers yet")
+	}
+	for _, ans := range answers {
+		ids := make([]string, len(ans.Selections))
+		for i, sel := range ans.Selections {
+			ids[i] = sel.PredefinedAnswerID
+		}
+		fmt.Printf("  %-26s %s\n", ans.QuestionID, strings.Join(ids, ", "))
+	}
+}
+
 func (c *launchCLI) listShieldQuestions() error {
-	categories, err := c.data.RetrieveQuestionCategoriesByType(c.ctx, model.ShieldQuestionCategory)
-	if err != nil {
-		return err
-	}
-	total := 0
-	for _, cat := range categories {
-		fmt.Printf("%s — %s\n", cat.ID, cat.Title)
-		questions, err := c.data.RetrieveQuestionsByCategoryID(c.ctx, cat.ID)
-		if err != nil {
-			return err
-		}
-		for _, q := range questions {
-			fmt.Printf("  %-26s w=%d  %s\n", q.ID, q.Weight, q.Text)
-			total += q.Weight
-		}
-	}
-	fmt.Printf("total weight: %d\n", total)
-	return nil
+	return c.printQuestions(model.ShieldQuestionCategory)
 }
 
 func (c *launchCLI) listShieldAnswers(asset string) error {
@@ -777,17 +860,11 @@ func (c *launchCLI) listShieldAnswers(asset string) error {
 	if a.LastShieldID == nil || *a.LastShieldID == "" {
 		return fmt.Errorf("asset %s has no shield", asset)
 	}
-	answers, err := c.data.RetrieveAnswersByShieldID(c.ctx, *a.LastShieldID)
+	answers, err := c.data.RetrieveUserAnswersByShieldID(c.ctx, *a.LastShieldID)
 	if err != nil {
 		return err
 	}
-	for _, ans := range answers {
-		reply := ans.Reply
-		if reply == model.UnansweredReply {
-			reply = "-"
-		}
-		fmt.Printf("  %-26s %s\n", ans.QuestionID, reply)
-	}
+	printUserAnswers(answers)
 	return nil
 }
 
@@ -812,7 +889,7 @@ func (c *launchCLI) listEvidences(asset string) error {
 		if url == "" {
 			url = "-"
 		}
-		fmt.Printf("  %-26s desc=%-30s url=%s\n", evid.QuestionCategoryID, desc, url)
+		fmt.Printf("  %-26s desc=%-30s url=%s\n", evid.QuestionID, desc, url)
 	}
 	return nil
 }
@@ -825,7 +902,7 @@ func (c *launchCLI) listAnswerHistory(asset string) error {
 	if a.LastLaunchID == nil || *a.LastLaunchID == "" {
 		return fmt.Errorf("asset %s has not been launched", asset)
 	}
-	history, err := c.data.RetrieveAnswerHistoryByLaunchID(c.ctx, *a.LastLaunchID)
+	history, err := c.data.RetrieveUserAnswerHistoryByLaunchID(c.ctx, *a.LastLaunchID)
 	if err != nil {
 		return err
 	}
@@ -835,8 +912,7 @@ func (c *launchCLI) listAnswerHistory(asset string) error {
 	}
 	fmt.Printf("  Answer change history for launch %s:\n", *a.LastLaunchID)
 	for _, h := range history {
-		fmt.Printf("    %-26s %-12s → %-12s changed by %-20s at %s\n",
-			h.QuestionID, h.PreviousReply, h.NewReply, h.ChangedBy, h.ChangedAt)
+		printHistoryEntry(h)
 	}
 	return nil
 }
@@ -849,7 +925,7 @@ func (c *launchCLI) listShieldAnswerHistory(asset string) error {
 	if a.LastShieldID == nil || *a.LastShieldID == "" {
 		return fmt.Errorf("asset %s has no shield", asset)
 	}
-	history, err := c.data.RetrieveAnswerHistoryByShieldID(c.ctx, *a.LastShieldID)
+	history, err := c.data.RetrieveUserAnswerHistoryByShieldID(c.ctx, *a.LastShieldID)
 	if err != nil {
 		return err
 	}
@@ -859,10 +935,21 @@ func (c *launchCLI) listShieldAnswerHistory(asset string) error {
 	}
 	fmt.Printf("  Answer change history for shield %s:\n", *a.LastShieldID)
 	for _, h := range history {
-		fmt.Printf("    %-26s %-12s → %-12s changed by %-20s at %s\n",
-			h.QuestionID, h.PreviousReply, h.NewReply, h.ChangedBy, h.ChangedAt)
+		printHistoryEntry(h)
 	}
 	return nil
+}
+
+func printHistoryEntry(h model.UserAnswerHistory) {
+	prev := "-"
+	if h.PreviousPredefinedAnswerID != nil {
+		prev = *h.PreviousPredefinedAnswerID
+	}
+	next := h.NewPredefinedAnswerID
+	if next == "" {
+		next = "-"
+	}
+	fmt.Printf("    %-26s %-30s → %-30s changed by %-20s at %s\n", h.QuestionID, prev, next, h.ChangedBy, h.ChangedAt)
 }
 
 // Steps
@@ -875,7 +962,7 @@ func (c *launchCLI) start(asset string) error {
 	return nil
 }
 
-func (c *launchCLI) submit(asset string, answers []model.Answer) error {
+func (c *launchCLI) submit(asset string, answers []model.AnswerSubmission) error {
 	if err := c.flow.SubmitLaunchAnswers(c.ctx, asset, answers); err != nil {
 		return err
 	}
@@ -883,7 +970,7 @@ func (c *launchCLI) submit(asset string, answers []model.Answer) error {
 	return nil
 }
 
-func (c *launchCLI) finalize(asset string, answers []model.Answer) error {
+func (c *launchCLI) finalize(asset string, answers []model.AnswerSubmission) error {
 	if err := c.flow.FinalizeLaunchAnswers(c.ctx, asset, answers); err != nil {
 		return err
 	}
@@ -950,7 +1037,7 @@ func (c *launchCLI) shieldQuery(asset string) (workflows.ShieldResult, error) {
 	return r, nil
 }
 
-func (c *launchCLI) shieldSubmitAnswers(asset string, answers map[string]string) error {
+func (c *launchCLI) shieldSubmitAnswers(asset string, answers []model.AnswerSubmission) error {
 	if err := c.flow.SubmitShieldAnswers(c.ctx, asset, answers); err != nil {
 		return err
 	}
@@ -958,7 +1045,7 @@ func (c *launchCLI) shieldSubmitAnswers(asset string, answers map[string]string)
 	return nil
 }
 
-func (c *launchCLI) shieldFinalizeAnswers(asset string, answers map[string]string) error {
+func (c *launchCLI) shieldFinalizeAnswers(asset string, answers []model.AnswerSubmission) error {
 	if err := c.flow.FinalizeShieldAnswers(c.ctx, asset, answers); err != nil {
 		return err
 	}
@@ -966,7 +1053,7 @@ func (c *launchCLI) shieldFinalizeAnswers(asset string, answers map[string]strin
 	return nil
 }
 
-func (c *launchCLI) shieldSubmitEvidences(asset string, evidences map[string]model.Evidence) error {
+func (c *launchCLI) shieldSubmitEvidences(asset string, evidences []model.EvidenceSubmission) error {
 	if err := c.flow.SubmitShieldEvidences(c.ctx, asset, evidences); err != nil {
 		return err
 	}
@@ -974,7 +1061,7 @@ func (c *launchCLI) shieldSubmitEvidences(asset string, evidences map[string]mod
 	return nil
 }
 
-func (c *launchCLI) shieldFinalizeEvidences(asset string, evidences map[string]model.Evidence) error {
+func (c *launchCLI) shieldFinalizeEvidences(asset string, evidences []model.EvidenceSubmission) error {
 	if err := c.flow.FinalizeShieldEvidences(c.ctx, asset, evidences); err != nil {
 		return err
 	}
@@ -1089,22 +1176,40 @@ func (c *launchCLI) checkPersisted(r workflows.LaunchResult) error {
 	return nil
 }
 
-// expectStoredAnswers verifies the launch's stored replies: the given answers, blank for the rest.
-func (c *launchCLI) expectStoredAnswers(launchID string, want []model.Answer) error {
-	stored, err := c.data.RetrieveAnswersByLaunchID(c.ctx, launchID)
+// expectStoredAnswers verifies the launch's stored answers are exactly the given ones. Signals
+// are processed asynchronously, so it retries for a few seconds.
+func (c *launchCLI) expectStoredAnswers(launchID string, want []model.AnswerSubmission) error {
+	wantIDs := map[string]string{}
+	for _, a := range want {
+		wantIDs[a.QuestionID] = sortedJoin(a.PredefinedAnswerIDs)
+	}
+	err := poll(c.ctx, func() (bool, error) {
+		stored, err := c.data.RetrieveUserAnswersByLaunchID(c.ctx, launchID)
+		if err != nil {
+			return false, err
+		}
+		gotIDs := map[string]string{}
+		for _, a := range stored {
+			ids := make([]string, len(a.Selections))
+			for i, sel := range a.Selections {
+				ids[i] = sel.PredefinedAnswerID
+			}
+			gotIDs[a.QuestionID] = sortedJoin(ids)
+		}
+		if len(gotIDs) != len(wantIDs) {
+			return false, fmt.Errorf("%d answers stored, want %d", len(gotIDs), len(wantIDs))
+		}
+		for q, ids := range wantIDs {
+			if gotIDs[q] != ids {
+				return false, fmt.Errorf("stored answer for %s is %q, want %q", q, gotIDs[q], ids)
+			}
+		}
+		return true, nil
+	})
 	if err != nil {
 		return err
 	}
-	wantReply := map[string]string{}
-	for _, a := range want {
-		wantReply[a.QuestionID] = a.Reply
-	}
-	for _, a := range stored {
-		if a.Reply != wantReply[a.QuestionID] {
-			return fmt.Errorf("stored reply for %s is %q, want %q", a.QuestionID, a.Reply, wantReply[a.QuestionID])
-		}
-	}
-	fmt.Printf("  ✓ stored answers: %d of %d answered\n", len(want), len(stored))
+	fmt.Printf("  ✓ stored answers: %d answered\n", len(want))
 	return nil
 }
 
@@ -1173,14 +1278,14 @@ func poll(ctx context.Context, check func() (bool, error)) error {
 }
 
 func printResult(label string, r workflows.LaunchResult) {
-	fmt.Printf("  %s: id=%s asset=%s state=%s points=%d tier=%s answered=%d/%d reminders=%d warnings=%d escalations=%d running=%s\n",
-		label, r.ID, r.AssetID, r.State, r.Points, r.TierID, r.Answered, r.Questions, r.Reminders, r.Warnings, r.Escalations,
+	fmt.Printf("  %s: id=%s asset=%s state=%s points=%d (score %.2f) tier=%s answered=%d/%d reminders=%d warnings=%d escalations=%d running=%s\n",
+		label, r.ID, r.AssetID, r.State, r.Points, float64(r.Points)/100, r.TierID, r.Answered, r.Questions, r.Reminders, r.Warnings, r.Escalations,
 		r.RunningTime.Round(time.Millisecond))
 }
 
 func printShieldResult(label string, r workflows.ShieldResult) {
 	fmt.Printf("  %s: id=%s asset=%s state=%s score=%d answered=%d/%d evidences=%d/%d reminders=%d warnings=%d escalations=%d running=%s\n",
-		label, r.ID, r.AssetID, r.State, r.Score, r.Answered, r.Questions, r.EvidencesCount, r.Categories, r.Reminders, r.Warnings, r.Escalations,
+		label, r.ID, r.AssetID, r.State, r.Score, r.Answered, r.Questions, r.EvidencesCount, r.EvidenceRequired, r.Reminders, r.Warnings, r.Escalations,
 		r.RunningTime.Round(time.Millisecond))
 }
 
@@ -1191,48 +1296,74 @@ func argAt(args []string, i int, name string) (string, error) {
 	return args[i], nil
 }
 
-// parseAnswers turns "q1=yes q2=no" into answers.
-func parseAnswers(args []string) ([]model.Answer, error) {
-	answers := make([]model.Answer, 0, len(args))
-	for _, a := range args {
-		q, reply, ok := strings.Cut(a, "=")
-		if !ok || q == "" {
-			return nil, fmt.Errorf("invalid answer %q, want questionID=yes|no", a)
-		}
-		answers = append(answers, model.Answer{QuestionID: q, Reply: reply})
+// predefinedAnswers returns the predefined answers of the given category type, both per question
+// (in display order) and as one list.
+func (c *launchCLI) predefinedAnswers(t model.QuestionCategoryType) (map[string][]model.PredefinedAnswer, []model.PredefinedAnswer, error) {
+	all, err := c.data.RetrievePredefinedAnswersByCategoryType(c.ctx, t)
+	if err != nil {
+		return nil, nil, err
 	}
-	return answers, nil
+	byQuestion := map[string][]model.PredefinedAnswer{}
+	for _, a := range all {
+		byQuestion[a.QuestionID] = append(byQuestion[a.QuestionID], a)
+	}
+	return byQuestion, all, nil
 }
 
-// parseAnswersMap turns "q1=yes q2=no" into a map for Shield.
-func parseAnswersMap(args []string) (map[string]string, error) {
-	answers := make(map[string]string, len(args))
-	for _, a := range args {
-		q, reply, ok := strings.Cut(a, "=")
-		if !ok || q == "" {
-			return nil, fmt.Errorf("invalid answer %q, want questionID=yes|no", a)
-		}
-		answers[q] = reply
+// pickAnswers answers each question with one predefined answer. pick gets the question's
+// position and its number of choices, and returns the index of the choice to select.
+func pickAnswers(questions []model.Question, byQuestion map[string][]model.PredefinedAnswer, pick func(i, n int) int) []model.AnswerSubmission {
+	answers := make([]model.AnswerSubmission, len(questions))
+	for i, q := range questions {
+		choices := byQuestion[q.ID]
+		answers[i] = model.AnswerSubmission{QuestionID: q.ID, PredefinedAnswerIDs: []string{choices[pick(i, len(choices))].ID}}
 	}
-	return answers, nil
+	return answers
 }
 
-// parseEvidences turns "cat1=desc:url cat2=desc2:url2" into evidences map.
-func parseEvidences(args []string) (map[string]model.Evidence, error) {
-	evidences := make(map[string]model.Evidence, len(args))
+// submissionPoints is the points the submitted answers are worth.
+func submissionPoints(submissions []model.AnswerSubmission, predefined []model.PredefinedAnswer) int {
+	details := make([]model.UserAnswerDetail, len(submissions))
+	for i, sub := range submissions {
+		for _, id := range sub.PredefinedAnswerIDs {
+			details[i].Selections = append(details[i].Selections, model.UserAnswerSelection{PredefinedAnswerID: id})
+		}
+	}
+	return answers.Points(details, predefined)
+}
+
+func sortedJoin(ids []string) string {
+	sorted := append([]string{}, ids...)
+	sort.Strings(sorted)
+	return strings.Join(sorted, ",")
+}
+
+// parseAnswers turns "q1=a1 q2=a2,a3" into answer submissions.
+func parseAnswers(args []string) ([]model.AnswerSubmission, error) {
+	submissions := make([]model.AnswerSubmission, 0, len(args))
 	for _, a := range args {
-		catID, rest, ok := strings.Cut(a, "=")
-		if !ok || catID == "" {
-			return nil, fmt.Errorf("invalid evidence %q, want categoryID=description:url", a)
+		q, ids, ok := strings.Cut(a, "=")
+		if !ok || q == "" || ids == "" {
+			return nil, fmt.Errorf("invalid answer %q, want questionID=answerID[,answerID…]", a)
+		}
+		submissions = append(submissions, model.AnswerSubmission{QuestionID: q, PredefinedAnswerIDs: strings.Split(ids, ",")})
+	}
+	return submissions, nil
+}
+
+// parseEvidences turns "q1=desc:url q2=desc2:url2" into evidence submissions.
+func parseEvidences(args []string) ([]model.EvidenceSubmission, error) {
+	evidences := make([]model.EvidenceSubmission, 0, len(args))
+	for _, a := range args {
+		questionID, rest, ok := strings.Cut(a, "=")
+		if !ok || questionID == "" {
+			return nil, fmt.Errorf("invalid evidence %q, want questionID=description:url", a)
 		}
 		desc, url, ok := strings.Cut(rest, ":")
 		if !ok {
-			return nil, fmt.Errorf("invalid evidence %q, want categoryID=description:url", a)
+			return nil, fmt.Errorf("invalid evidence %q, want questionID=description:url", a)
 		}
-		evidences[catID] = model.Evidence{
-			Description: desc,
-			URL:         url,
-		}
+		evidences = append(evidences, model.EvidenceSubmission{QuestionID: questionID, Description: desc, URL: url})
 	}
 	return evidences, nil
 }

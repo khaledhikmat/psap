@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/khaledhikmat/psap/model"
+	"github.com/khaledhikmat/psap/service/answers"
 	"github.com/khaledhikmat/psap/service/config"
 	"github.com/khaledhikmat/psap/service/data"
 	"go.temporal.io/sdk/activity"
@@ -29,12 +29,11 @@ func NewActivities(cfgSvc config.IService, dataSvc data.IService) *Activities {
 	return &Activities{CfgSvc: cfgSvc, DataSvc: dataSvc}
 }
 
-// Create stores a new launch with a blank answer for every launch question, and records it
-// as the asset's last launch.
+// Create stores a new launch and records it as the asset's last launch. Answers are created
+// as the business owner submits them.
 //
-// The launch ID is the workflow's run ID and answer IDs derive from it, so both are stable
-// across activity retries: a retry after a successful insert finds the rows and succeeds
-// instead of creating a second launch.
+// The launch ID is the workflow's run ID, so it is stable across activity retries: a retry
+// after a successful insert finds the row and succeeds instead of creating a second launch.
 func (a *Activities) Create(ctx context.Context, req LaunchCreationRequest) (LaunchCreationResult, error) {
 	launchID := activity.GetInfo(ctx).WorkflowExecution.RunID
 
@@ -58,21 +57,6 @@ func (a *Activities) Create(ctx context.Context, req LaunchCreationRequest) (Lau
 	if err != nil {
 		return LaunchCreationResult{}, err
 	}
-	answers := make([]model.Answer, len(questions))
-	for i, q := range questions {
-		answers[i] = model.Answer{
-			ID:         launchID + "-" + q.ID,
-			QuestionID: q.ID,
-			LaunchID:   &launchID,
-			Reply:      model.UnansweredReply,
-			CreatedBy:  launchActor,
-			UpdatedBy:  launchActor,
-		}
-	}
-	err = a.DataSvc.NewAnswers(ctx, answers)
-	if err != nil && !errors.Is(err, data.ErrAlreadyExists) {
-		return LaunchCreationResult{}, err
-	}
 
 	asset.LastLaunchID = &launchID
 	asset.UpdatedBy = launchActor
@@ -86,65 +70,48 @@ func (a *Activities) Create(ctx context.Context, req LaunchCreationRequest) (Lau
 	}, nil
 }
 
-// SaveAnswers records the given replies on the launch's answers. Partial submissions are
-// accepted; questions not in the request keep their current reply.
+// SaveAnswers records the selected predefined answers of the submitted questions. Partial
+// submissions are accepted; questions not in the request keep their current answers.
 func (a *Activities) SaveAnswers(ctx context.Context, req LaunchAnswersSaveRequest) (LaunchAnswersSaveResult, error) {
-	existing, err := a.DataSvc.RetrieveAnswersByLaunchID(ctx, req.LaunchID)
+	questions, err := a.DataSvc.RetrieveQuestionsByCategoryType(ctx, model.LaunchQuestionCategory)
 	if err != nil {
 		return LaunchAnswersSaveResult{}, err
 	}
-	byQuestion := make(map[string]int, len(existing))
-	for i, ans := range existing {
-		byQuestion[ans.QuestionID] = i
+	predefined, err := a.DataSvc.RetrievePredefinedAnswersByCategoryType(ctx, model.LaunchQuestionCategory)
+	if err != nil {
+		return LaunchAnswersSaveResult{}, err
+	}
+	if err := answers.Validate(questions, predefined, req.Answers); err != nil {
+		return LaunchAnswersSaveResult{}, temporal.NewNonRetryableApplicationError(err.Error(), ErrInvalidAnswer, err)
 	}
 
-	changed := map[int]bool{}
-	for _, submitted := range req.Answers {
-		i, ok := byQuestion[submitted.QuestionID]
-		if !ok {
-			return LaunchAnswersSaveResult{}, temporal.NewNonRetryableApplicationError(
-				fmt.Sprintf("question %q is not part of launch %s", submitted.QuestionID, req.LaunchID), ErrInvalidAnswer, nil)
-		}
-		reply, err := NormalizeReply(submitted.Reply)
-		if err != nil {
-			return LaunchAnswersSaveResult{}, temporal.NewNonRetryableApplicationError(err.Error(), ErrInvalidAnswer, nil)
-		}
-		if existing[i].Reply != reply {
-			existing[i].Reply = reply
-			existing[i].UpdatedBy = req.UpdatedBy
-			changed[i] = true
-		}
+	if err := a.DataSvc.SaveLaunchAnswers(ctx, req.LaunchID, req.Answers, req.UpdatedBy); err != nil {
+		return LaunchAnswersSaveResult{}, err
 	}
-
-	updates := make([]model.Answer, 0, len(changed))
-	for i := range existing {
-		if changed[i] {
-			updates = append(updates, existing[i])
-		}
-	}
-	if err := a.DataSvc.UpdateAnswers(ctx, updates); err != nil {
+	saved, err := a.DataSvc.RetrieveUserAnswersByLaunchID(ctx, req.LaunchID)
+	if err != nil {
 		return LaunchAnswersSaveResult{}, err
 	}
 
 	return LaunchAnswersSaveResult{
-		Answered:  countAnswered(existing),
-		Questions: len(existing),
+		Answered:  answers.Answered(saved),
+		Questions: len(questions),
 	}, nil
 }
 
-// CalculateTier adds up the weights of the launch's YES answers and picks the tier whose
-// point range holds the total. Unanswered questions count as NO.
+// CalculateTier adds up the points of the launch's selected answers and picks the tier whose
+// point range holds the total. Unanswered questions earn no points.
 func (a *Activities) CalculateTier(ctx context.Context, req LaunchTierCalculationRequest) (LaunchTierCalculationResult, error) {
-	answers, err := a.DataSvc.RetrieveAnswersByLaunchID(ctx, req.LaunchID)
+	saved, err := a.DataSvc.RetrieveUserAnswersByLaunchID(ctx, req.LaunchID)
 	if err != nil {
 		return LaunchTierCalculationResult{}, err
 	}
-	questions, err := a.DataSvc.RetrieveQuestionsByCategoryType(ctx, model.LaunchQuestionCategory)
+	predefined, err := a.DataSvc.RetrievePredefinedAnswersByCategoryType(ctx, model.LaunchQuestionCategory)
 	if err != nil {
 		return LaunchTierCalculationResult{}, err
 	}
 
-	points := Points(questions, answers)
+	points := answers.Points(saved, predefined)
 	tier, err := a.DataSvc.RetrieveTierByPoints(ctx, points)
 	if errors.Is(err, data.ErrNotFound) {
 		// The tier table has a gap; retrying will not fix it.
@@ -193,39 +160,4 @@ func (a *Activities) Persist(ctx context.Context, req LaunchPersistRequest) erro
 	asset.State = model.PendingShieldAssetState
 	asset.UpdatedBy = launchActor
 	return a.DataSvc.UpdateAsset(ctx, asset)
-}
-
-// NormalizeReply accepts yes/no in any case (and "" for unanswered) and returns the stored form.
-func NormalizeReply(reply string) (string, error) {
-	switch r := strings.ToUpper(strings.TrimSpace(reply)); r {
-	case model.UnansweredReply, model.YesReply, model.NoReply:
-		return r, nil
-	default:
-		return "", fmt.Errorf("invalid reply %q, want %s or %s", reply, model.YesReply, model.NoReply)
-	}
-}
-
-// Points is the sum of the weights of the questions answered YES.
-func Points(questions []model.Question, answers []model.Answer) int {
-	weights := make(map[string]int, len(questions))
-	for _, q := range questions {
-		weights[q.ID] = q.Weight
-	}
-	points := 0
-	for _, ans := range answers {
-		if ans.Reply == model.YesReply {
-			points += weights[ans.QuestionID]
-		}
-	}
-	return points
-}
-
-func countAnswered(answers []model.Answer) int {
-	n := 0
-	for _, ans := range answers {
-		if ans.Reply != model.UnansweredReply {
-			n++
-		}
-	}
-	return n
 }

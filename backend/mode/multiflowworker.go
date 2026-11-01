@@ -7,6 +7,7 @@ import (
 	"github.com/khaledhikmat/psap/service"
 	"github.com/khaledhikmat/psap/service/flow/activities/launch"
 	"github.com/khaledhikmat/psap/service/flow/activities/notification"
+	shieldactivities "github.com/khaledhikmat/psap/service/flow/activities/shield"
 	"github.com/khaledhikmat/psap/service/flow/helpers"
 	"github.com/khaledhikmat/psap/service/flow/workflows"
 	"go.temporal.io/sdk/client"
@@ -28,6 +29,7 @@ func MultiWorker(canxCtx context.Context, pod string, svcs service.ServicesFacto
 
 	launchActs := launch.NewActivities(svcs.CfgSvc, svcs.DataSvc)
 	notifyActs := notification.NewActivities(svcs.CfgSvc, svcs.DataSvc)
+	shieldActs := &shieldactivities.Activities{DataSvc: svcs.DataSvc}
 
 	workers := make([]worker.Worker, 0, multiWorkerCount)
 	stopAll := func() {
@@ -41,7 +43,9 @@ func MultiWorker(canxCtx context.Context, pod string, svcs service.ServicesFacto
 			Identity: fmt.Sprintf("%s-worker-%d", pod, i),
 		})
 		w.RegisterWorkflow(workflows.Launch)
+		w.RegisterWorkflow(workflows.Shield)
 		w.RegisterActivity(launchActs)
+		w.RegisterActivity(shieldActs)
 		w.RegisterActivity(notifyActs)
 
 		// Start is non-blocking, unlike Run

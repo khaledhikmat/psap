@@ -39,7 +39,7 @@ func (c *Controller) showShield(ctx *gin.Context) {
 func (c *Controller) listShieldAnswers(ctx *gin.Context) {
 	shieldID := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveAnswersByShieldID(ctx, shieldID)
+	result, err := c.Svcs.DataSvc.RetrieveUserAnswersByShieldID(ctx, shieldID)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -63,7 +63,7 @@ func (c *Controller) listShieldEvidences(ctx *gin.Context) {
 func (c *Controller) listShieldAnswerHistory(ctx *gin.Context) {
 	shieldID := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveAnswerHistoryByShieldID(ctx, shieldID)
+	result, err := c.Svcs.DataSvc.RetrieveUserAnswerHistoryByShieldID(ctx, shieldID)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -94,7 +94,7 @@ func (c *Controller) initiateShield(ctx *gin.Context) {
 }
 
 type submitShieldAnswersRequest struct {
-	Answers map[string]string `json:"answers" binding:"required"`
+	Answers []model.AnswerSubmission `json:"answers" binding:"required"`
 }
 
 func (c *Controller) submitShieldAnswers(ctx *gin.Context) {
@@ -118,7 +118,7 @@ func (c *Controller) submitShieldAnswers(ctx *gin.Context) {
 	}
 
 	if err := c.Svcs.FlowSvc.SubmitShieldAnswers(ctx, shield.AssetID, req.Answers); err != nil {
-		newError(ctx, http.StatusInternalServerError, err)
+		newError(ctx, submissionErrorStatus(err), err)
 		return
 	}
 
@@ -126,7 +126,7 @@ func (c *Controller) submitShieldAnswers(ctx *gin.Context) {
 }
 
 type finalizeShieldAnswersRequest struct {
-	Answers map[string]string `json:"answers"`
+	Answers []model.AnswerSubmission `json:"answers"`
 }
 
 func (c *Controller) finalizeShieldAnswers(ctx *gin.Context) {
@@ -150,7 +150,7 @@ func (c *Controller) finalizeShieldAnswers(ctx *gin.Context) {
 	}
 
 	if err := c.Svcs.FlowSvc.FinalizeShieldAnswers(ctx, shield.AssetID, req.Answers); err != nil {
-		newError(ctx, http.StatusInternalServerError, err)
+		newError(ctx, submissionErrorStatus(err), err)
 		return
 	}
 
@@ -158,7 +158,7 @@ func (c *Controller) finalizeShieldAnswers(ctx *gin.Context) {
 }
 
 type submitShieldEvidencesRequest struct {
-	Evidences map[string]model.Evidence `json:"evidences" binding:"required"`
+	Evidences []model.EvidenceSubmission `json:"evidences" binding:"required"`
 }
 
 func (c *Controller) submitShieldEvidences(ctx *gin.Context) {
@@ -182,7 +182,7 @@ func (c *Controller) submitShieldEvidences(ctx *gin.Context) {
 	}
 
 	if err := c.Svcs.FlowSvc.SubmitShieldEvidences(ctx, shield.AssetID, req.Evidences); err != nil {
-		newError(ctx, http.StatusInternalServerError, err)
+		newError(ctx, submissionErrorStatus(err), err)
 		return
 	}
 
@@ -190,7 +190,7 @@ func (c *Controller) submitShieldEvidences(ctx *gin.Context) {
 }
 
 type finalizeShieldEvidencesRequest struct {
-	Evidences map[string]model.Evidence `json:"evidences"`
+	Evidences []model.EvidenceSubmission `json:"evidences"`
 }
 
 func (c *Controller) finalizeShieldEvidences(ctx *gin.Context) {
@@ -214,7 +214,7 @@ func (c *Controller) finalizeShieldEvidences(ctx *gin.Context) {
 	}
 
 	if err := c.Svcs.FlowSvc.FinalizeShieldEvidences(ctx, shield.AssetID, req.Evidences); err != nil {
-		newError(ctx, http.StatusInternalServerError, err)
+		newError(ctx, submissionErrorStatus(err), err)
 		return
 	}
 

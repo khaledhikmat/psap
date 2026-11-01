@@ -46,17 +46,29 @@ type IService interface {
 	RetrieveQuestionByID(ctx context.Context, id string) (model.Question, error)
 	UpdateQuestion(ctx context.Context, question model.Question) error
 
-	// NewAnswers and UpdateAnswers apply all answers in a single transaction.
-	NewAnswers(ctx context.Context, answers []model.Answer) error
-	RetrieveAnswersByLaunchID(ctx context.Context, launchID string) ([]model.Answer, error)
-	RetrieveAnswersByShieldID(ctx context.Context, shieldID string) ([]model.Answer, error)
-	RetrieveAnswerByID(ctx context.Context, id string) (model.Answer, error)
-	UpdateAnswers(ctx context.Context, answers []model.Answer) error
+	NewPredefinedAnswer(ctx context.Context, answer model.PredefinedAnswer) error
+	RetrievePredefinedAnswers(ctx context.Context) ([]model.PredefinedAnswer, error)
+	RetrievePredefinedAnswersByQuestionID(ctx context.Context, questionID string) ([]model.PredefinedAnswer, error)
+	// RetrievePredefinedAnswersByCategoryType returns the predefined answers of every question of
+	// every category of the given type, in question order, then answer order.
+	RetrievePredefinedAnswersByCategoryType(ctx context.Context, categoryType model.QuestionCategoryType) ([]model.PredefinedAnswer, error)
+	RetrievePredefinedAnswerByID(ctx context.Context, id string) (model.PredefinedAnswer, error)
+	UpdatePredefinedAnswer(ctx context.Context, answer model.PredefinedAnswer) error
 
-	// AnswerHistory tracks all changes to answers for audit trail
-	RetrieveAnswerHistoryByAnswerID(ctx context.Context, answerID string) ([]model.AnswerHistory, error)
-	RetrieveAnswerHistoryByLaunchID(ctx context.Context, launchID string) ([]model.AnswerHistory, error)
-	RetrieveAnswerHistoryByShieldID(ctx context.Context, shieldID string) ([]model.AnswerHistory, error)
+	// SaveLaunchAnswers and SaveShieldAnswers set the selected predefined answers of each
+	// submitted question in a single transaction, creating the user answer on first submission.
+	// Selections that change are recorded in the answer history. The submissions must already be
+	// valid (see the answers package); questions not submitted are left unchanged.
+	SaveLaunchAnswers(ctx context.Context, launchID string, submissions []model.AnswerSubmission, actor string) error
+	SaveShieldAnswers(ctx context.Context, shieldID string, submissions []model.AnswerSubmission, actor string) error
+	RetrieveUserAnswersByLaunchID(ctx context.Context, launchID string) ([]model.UserAnswerDetail, error)
+	RetrieveUserAnswersByShieldID(ctx context.Context, shieldID string) ([]model.UserAnswerDetail, error)
+	RetrieveUserAnswerByID(ctx context.Context, id string) (model.UserAnswerDetail, error)
+
+	// UserAnswerHistory is the audit trail of changes to user answers, newest first.
+	RetrieveUserAnswerHistoryByUserAnswerID(ctx context.Context, userAnswerID string) ([]model.UserAnswerHistory, error)
+	RetrieveUserAnswerHistoryByLaunchID(ctx context.Context, launchID string) ([]model.UserAnswerHistory, error)
+	RetrieveUserAnswerHistoryByShieldID(ctx context.Context, shieldID string) ([]model.UserAnswerHistory, error)
 
 	NewLaunch(ctx context.Context, launch model.Launch) error
 	RetrieveLaunches(ctx context.Context) ([]model.Launch, error)
@@ -72,6 +84,7 @@ type IService interface {
 
 	// NewEvidences and UpdateEvidences apply all evidences in a single transaction.
 	NewEvidences(ctx context.Context, evidences []model.Evidence) error
+	RetrieveEvidencesByLaunchID(ctx context.Context, launchID string) ([]model.Evidence, error)
 	RetrieveEvidencesByShieldID(ctx context.Context, shieldID string) ([]model.Evidence, error)
 	RetrieveEvidenceByID(ctx context.Context, id string) (model.Evidence, error)
 	UpdateEvidences(ctx context.Context, evidences []model.Evidence) error

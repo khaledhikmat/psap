@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/khaledhikmat/psap/model"
+	"github.com/khaledhikmat/psap/service/answers"
 	"github.com/khaledhikmat/psap/service/config"
 	"github.com/khaledhikmat/psap/service/data"
-	launchactivities "github.com/khaledhikmat/psap/service/flow/activities/launch"
-	shieldactivities "github.com/khaledhikmat/psap/service/flow/activities/shield"
 	"github.com/khaledhikmat/psap/service/flow/helpers"
 	"github.com/khaledhikmat/psap/service/flow/workflows"
 	"github.com/khaledhikmat/psap/service/lgr"
@@ -30,8 +30,9 @@ var (
 	// ErrInvalidLaunchState is returned when a launch step is attempted in the wrong state,
 	// e.g. submitting answers after they were finalized, or validating a tier before.
 	ErrInvalidLaunchState = xerrors.New("launch is not in a state that allows this step")
-	// ErrInvalidAnswer is returned for answers to unknown questions or with a reply other than YES/NO.
-	ErrInvalidAnswer = xerrors.New("invalid answer")
+	// ErrInvalidAnswer is returned for answers to unknown questions, or selecting predefined
+	// answers that do not belong to the question or that the question does not allow.
+	ErrInvalidAnswer = answers.ErrInvalid
 	// ErrInvalidTier is returned when validating a launch with a tier that does not exist.
 	ErrInvalidTier = xerrors.New("invalid tier")
 
@@ -40,6 +41,9 @@ var (
 	ErrShieldInProgress = xerrors.New("asset shield already in progress for this asset")
 	// ErrInvalidShieldState is returned when a shield step is attempted in the wrong state.
 	ErrInvalidShieldState = xerrors.New("shield is not in a state that allows this step")
+	// ErrIncompleteShield is returned when finalizing shield answers or evidences while
+	// required ones are still missing.
+	ErrIncompleteShield = xerrors.New("shield is incomplete")
 )
 
 // Launch defaults (timeouts in seconds).
@@ -236,26 +240,24 @@ func (s *service) QueryLaunch(ctx context.Context, assetID string) (model.Launch
 	}, nil
 }
 
-// SubmitLaunchAnswers saves (possibly partial) answers, keyed by QuestionID with a YES/NO Reply.
-func (s *service) SubmitLaunchAnswers(ctx context.Context, assetID string, answers []model.Answer) error {
-	answers, err := s.checkAnswers(ctx, assetID, answers)
-	if err != nil {
+// SubmitLaunchAnswers saves (possibly partial) answers: the predefined answers selected for each question.
+func (s *service) SubmitLaunchAnswers(ctx context.Context, assetID string, submissions []model.AnswerSubmission) error {
+	if err := s.checkAnswers(ctx, assetID, submissions); err != nil {
 		return err
 	}
 	return s.signal(ctx, assetID, workflows.LaunchSubmitAnswersSignalName, workflows.SubmitAnswersSignal{
-		Answers: answers,
+		Answers: submissions,
 	})
 }
 
 // FinalizeLaunchAnswers saves the last answers (if any), locks them and calculates the tier.
-// Questions still unanswered count as NO.
-func (s *service) FinalizeLaunchAnswers(ctx context.Context, assetID string, answers []model.Answer) error {
-	answers, err := s.checkAnswers(ctx, assetID, answers)
-	if err != nil {
+// Questions still unanswered earn no points.
+func (s *service) FinalizeLaunchAnswers(ctx context.Context, assetID string, submissions []model.AnswerSubmission) error {
+	if err := s.checkAnswers(ctx, assetID, submissions); err != nil {
 		return err
 	}
 	return s.signal(ctx, assetID, workflows.LaunchFinalizeAnswersSignalName, workflows.SubmitAnswersSignal{
-		Answers: answers,
+		Answers: submissions,
 	})
 }
 
@@ -277,36 +279,28 @@ func (s *service) ValidateTier(ctx context.Context, assetID string, tierID strin
 	})
 }
 
-// checkAnswers verifies the launch is waiting for answers and that every answer is for a
-// launch question with a valid reply. It returns the answers with normalized replies.
+// checkAnswers verifies the launch is waiting for answers and that the submissions are valid
+// for the launch questions.
 //
 // The workflow ignores signals in the wrong state and rejects invalid answers itself, but a
 // signal cannot report errors back, so they are checked here first.
-func (s *service) checkAnswers(ctx context.Context, assetID string, answers []model.Answer) ([]model.Answer, error) {
+func (s *service) checkAnswers(ctx context.Context, assetID string, submissions []model.AnswerSubmission) error {
 	if err := s.expectState(ctx, assetID, model.WaitingForAnswersLaunchState); err != nil {
-		return nil, err
+		return err
 	}
-	questions, err := s.datasvc.RetrieveQuestionsByCategoryType(ctx, model.LaunchQuestionCategory)
-	if err != nil {
-		return nil, err
-	}
-	known := make(map[string]bool, len(questions))
-	for _, q := range questions {
-		known[q.ID] = true
-	}
+	return s.validateAnswers(ctx, model.LaunchQuestionCategory, submissions)
+}
 
-	checked := make([]model.Answer, len(answers))
-	for i, a := range answers {
-		if !known[a.QuestionID] {
-			return nil, fmt.Errorf("%w: %q is not a launch question", ErrInvalidAnswer, a.QuestionID)
-		}
-		reply, err := launchactivities.NormalizeReply(a.Reply)
-		if err != nil {
-			return nil, fmt.Errorf("%w: question %s: %v", ErrInvalidAnswer, a.QuestionID, err)
-		}
-		checked[i] = model.Answer{QuestionID: a.QuestionID, Reply: reply}
+func (s *service) validateAnswers(ctx context.Context, categoryType model.QuestionCategoryType, submissions []model.AnswerSubmission) error {
+	questions, err := s.datasvc.RetrieveQuestionsByCategoryType(ctx, categoryType)
+	if err != nil {
+		return err
 	}
-	return checked, nil
+	predefined, err := s.datasvc.RetrievePredefinedAnswersByCategoryType(ctx, categoryType)
+	if err != nil {
+		return err
+	}
+	return answers.Validate(questions, predefined, submissions)
 }
 
 func (s *service) expectState(ctx context.Context, assetID string, want model.LaunchState) error {
@@ -487,45 +481,142 @@ func (s *service) QueryShield(ctx context.Context, assetID string) (model.Shield
 }
 
 // SubmitShieldAnswers sends answers to the shield workflow.
-func (s *service) SubmitShieldAnswers(ctx context.Context, assetID string, answers map[string]string) error {
+func (s *service) SubmitShieldAnswers(ctx context.Context, assetID string, submissions []model.AnswerSubmission) error {
+	if err := s.validateAnswers(ctx, model.ShieldQuestionCategory, submissions); err != nil {
+		return err
+	}
 	return s.signalShield(ctx, assetID, workflows.ShieldSubmitAnswersSignalName, workflows.SubmitAnswersShieldSignal{
-		Answers: answers,
+		Answers: submissions,
 	})
 }
 
-// FinalizeShieldAnswers sends final answers and locks the shield answers.
-func (s *service) FinalizeShieldAnswers(ctx context.Context, assetID string, answers map[string]string) error {
+// FinalizeShieldAnswers sends final answers and locks the shield answers. Every shield question
+// must be answered by then.
+func (s *service) FinalizeShieldAnswers(ctx context.Context, assetID string, submissions []model.AnswerSubmission) error {
+	if err := s.validateAnswers(ctx, model.ShieldQuestionCategory, submissions); err != nil {
+		return err
+	}
+	if err := s.checkShieldAnswersComplete(ctx, assetID, submissions); err != nil {
+		return err
+	}
 	return s.signalShield(ctx, assetID, workflows.ShieldFinalizeAnswersSignalName, workflows.SubmitAnswersShieldSignal{
-		Answers: answers,
+		Answers: submissions,
 	})
 }
 
 // SubmitShieldEvidences sends evidences to the shield workflow.
-func (s *service) SubmitShieldEvidences(ctx context.Context, assetID string, evidences map[string]model.Evidence) error {
-	evidData := make(map[string]shieldactivities.ShieldEvidenceData)
-	for catID, evid := range evidences {
-		evidData[catID] = shieldactivities.ShieldEvidenceData{
-			Description: evid.Description,
-			URL:         evid.URL,
-		}
+func (s *service) SubmitShieldEvidences(ctx context.Context, assetID string, evidences []model.EvidenceSubmission) error {
+	if err := s.checkEvidences(ctx, assetID, evidences); err != nil {
+		return err
 	}
 	return s.signalShield(ctx, assetID, workflows.ShieldSubmitEvidencesSignalName, workflows.SubmitEvidencesShieldSignal{
-		Evidences: evidData,
+		Evidences: evidences,
 	})
 }
 
-// FinalizeShieldEvidences sends final evidences and locks them.
-func (s *service) FinalizeShieldEvidences(ctx context.Context, assetID string, evidences map[string]model.Evidence) error {
-	evidData := make(map[string]shieldactivities.ShieldEvidenceData)
-	for catID, evid := range evidences {
-		evidData[catID] = shieldactivities.ShieldEvidenceData{
-			Description: evid.Description,
-			URL:         evid.URL,
-		}
+// FinalizeShieldEvidences sends final evidences and locks them. Every question that requires
+// evidence must have some by then.
+func (s *service) FinalizeShieldEvidences(ctx context.Context, assetID string, evidences []model.EvidenceSubmission) error {
+	if err := s.checkEvidences(ctx, assetID, evidences); err != nil {
+		return err
+	}
+	if err := s.checkShieldEvidencesComplete(ctx, assetID, evidences); err != nil {
+		return err
 	}
 	return s.signalShield(ctx, assetID, workflows.ShieldFinalizeEvidencesSignalName, workflows.SubmitEvidencesShieldSignal{
-		Evidences: evidData,
+		Evidences: evidences,
 	})
+}
+
+// checkShieldAnswersComplete verifies that the stored answers plus the final submissions
+// cover every shield question.
+func (s *service) checkShieldAnswersComplete(ctx context.Context, assetID string, final []model.AnswerSubmission) error {
+	shield, err := s.queryShield(ctx, assetID)
+	if err != nil {
+		return err
+	}
+	questions, err := s.datasvc.RetrieveQuestionsByCategoryType(ctx, model.ShieldQuestionCategory)
+	if err != nil {
+		return err
+	}
+	stored, err := s.datasvc.RetrieveUserAnswersByShieldID(ctx, shield.ID)
+	if err != nil {
+		return err
+	}
+	answered := make(map[string]bool, len(questions))
+	for _, ua := range stored {
+		answered[ua.QuestionID] = len(ua.Selections) > 0
+	}
+	for _, sub := range final {
+		answered[sub.QuestionID] = len(sub.PredefinedAnswerIDs) > 0
+	}
+	missing := []string{}
+	for _, q := range questions {
+		if !answered[q.ID] {
+			missing = append(missing, q.ID)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%w: unanswered questions: %s", ErrIncompleteShield, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// checkShieldEvidencesComplete verifies that the stored evidences plus the final submissions
+// cover every question that requires evidence.
+func (s *service) checkShieldEvidencesComplete(ctx context.Context, assetID string, final []model.EvidenceSubmission) error {
+	shield, err := s.queryShield(ctx, assetID)
+	if err != nil {
+		return err
+	}
+	questions, err := s.datasvc.RetrieveQuestionsByCategoryType(ctx, model.ShieldQuestionCategory)
+	if err != nil {
+		return err
+	}
+	stored, err := s.datasvc.RetrieveEvidencesByShieldID(ctx, shield.ID)
+	if err != nil {
+		return err
+	}
+	provided := make(map[string]bool, len(questions))
+	for _, e := range stored {
+		provided[e.QuestionID] = e.Description != "" || e.URL != ""
+	}
+	for _, e := range final {
+		provided[e.QuestionID] = e.Description != "" || e.URL != ""
+	}
+	missing := []string{}
+	for _, q := range questions {
+		if q.EvidenceRequired && !provided[q.ID] {
+			missing = append(missing, q.ID)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%w: missing evidence for: %s", ErrIncompleteShield, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// checkEvidences verifies that each evidence is for an answered question of the asset's shield.
+// The workflow cannot report errors back from a signal, so this is checked before signaling.
+func (s *service) checkEvidences(ctx context.Context, assetID string, evidences []model.EvidenceSubmission) error {
+	shield, err := s.queryShield(ctx, assetID)
+	if err != nil {
+		return err
+	}
+	answered, err := s.datasvc.RetrieveUserAnswersByShieldID(ctx, shield.ID)
+	if err != nil {
+		return err
+	}
+	hasAnswer := make(map[string]bool, len(answered))
+	for _, ua := range answered {
+		hasAnswer[ua.QuestionID] = len(ua.Selections) > 0
+	}
+	for _, e := range evidences {
+		if !hasAnswer[e.QuestionID] {
+			return fmt.Errorf("%w: question %q has no answer to attach evidence to", ErrInvalidAnswer, e.QuestionID)
+		}
+	}
+	return nil
 }
 
 // queryShield queries the workflow's current state.

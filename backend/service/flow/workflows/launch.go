@@ -54,7 +54,7 @@ type LaunchResult struct {
 	RunningTime     time.Duration
 	State           model.LaunchState
 	TierID          string
-	Points          int // sum of the weights of YES answers; set when answers are finalized
+	Points          int // sum of the points of the selected answers; set when answers are finalized
 	Answered        int
 	Questions       int
 	BusinessOwner   string
@@ -70,9 +70,9 @@ func LaunchWorkflowID(assetID string) string {
 	return "asset-launch-wf-" + assetID
 }
 
-// SubmitAnswersSignal carries replies by question ID. Only QuestionID and Reply are used.
+// SubmitAnswersSignal carries the selected predefined answers by question.
 type SubmitAnswersSignal struct {
-	Answers []model.Answer
+	Answers []model.AnswerSubmission
 }
 
 // ValidateTierSignal approves the launch's tier. An empty TierID accepts the calculated tier;
@@ -199,7 +199,7 @@ func (w *launch) setupQuery() error {
 	})
 }
 
-// create creates the launch and its blank answers, unless this run continues a launch that
+// create creates the launch, unless this run continues a launch that
 // already exists.
 func (w *launch) create() error {
 	if w.id != "" {
@@ -293,7 +293,7 @@ func (w *launch) onAnswersSubmitted(sig SubmitAnswersSignal) {
 }
 
 // onAnswersFinalized saves the last answers, locks them and calculates the tier. Unanswered
-// questions count as NO.
+// questions earn no points.
 func (w *launch) onAnswersFinalized(sig SubmitAnswersSignal) {
 	if !w.expectState(LaunchFinalizeAnswersSignalName, model.WaitingForAnswersLaunchState) {
 		return
@@ -339,8 +339,8 @@ func (w *launch) expectState(signal string, want model.LaunchState) bool {
 	return false
 }
 
-// saveAnswers stores the replies and returns whether that succeeded.
-func (w *launch) saveAnswers(answers []model.Answer) bool {
+// saveAnswers stores the selections and returns whether that succeeded.
+func (w *launch) saveAnswers(answers []model.AnswerSubmission) bool {
 	if len(answers) == 0 {
 		return true
 	}

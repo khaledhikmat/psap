@@ -39,7 +39,7 @@ func (c *Controller) showLaunch(ctx *gin.Context) {
 func (c *Controller) listLaunchAnswers(ctx *gin.Context) {
 	launchID := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveAnswersByLaunchID(ctx, launchID)
+	result, err := c.Svcs.DataSvc.RetrieveUserAnswersByLaunchID(ctx, launchID)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -51,7 +51,7 @@ func (c *Controller) listLaunchAnswers(ctx *gin.Context) {
 func (c *Controller) listLaunchAnswerHistory(ctx *gin.Context) {
 	launchID := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveAnswerHistoryByLaunchID(ctx, launchID)
+	result, err := c.Svcs.DataSvc.RetrieveUserAnswerHistoryByLaunchID(ctx, launchID)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -82,7 +82,7 @@ func (c *Controller) initiateLaunch(ctx *gin.Context) {
 }
 
 type submitLaunchAnswersRequest struct {
-	Answers []model.Answer `json:"answers" binding:"required"`
+	Answers []model.AnswerSubmission `json:"answers" binding:"required"`
 }
 
 func (c *Controller) submitLaunchAnswers(ctx *gin.Context) {
@@ -106,7 +106,7 @@ func (c *Controller) submitLaunchAnswers(ctx *gin.Context) {
 	}
 
 	if err := c.Svcs.FlowSvc.SubmitLaunchAnswers(ctx, launch.AssetID, req.Answers); err != nil {
-		newError(ctx, http.StatusInternalServerError, err)
+		newError(ctx, submissionErrorStatus(err), err)
 		return
 	}
 
@@ -114,7 +114,7 @@ func (c *Controller) submitLaunchAnswers(ctx *gin.Context) {
 }
 
 type finalizeLaunchAnswersRequest struct {
-	Answers []model.Answer `json:"answers"`
+	Answers []model.AnswerSubmission `json:"answers"`
 }
 
 func (c *Controller) finalizeLaunchAnswers(ctx *gin.Context) {
@@ -138,7 +138,7 @@ func (c *Controller) finalizeLaunchAnswers(ctx *gin.Context) {
 	}
 
 	if err := c.Svcs.FlowSvc.FinalizeLaunchAnswers(ctx, launch.AssetID, req.Answers); err != nil {
-		newError(ctx, http.StatusInternalServerError, err)
+		newError(ctx, submissionErrorStatus(err), err)
 		return
 	}
 

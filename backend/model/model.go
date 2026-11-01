@@ -121,45 +121,84 @@ type QuestionCategory struct {
 }
 
 type Question struct {
-	ID         string `json:"id" db:"ID"`
-	CategoryID string `json:"categoryId" db:"CATEGORY_ID"`
-	Text       string `json:"text" db:"TEXT"`
-	Weight     int    `json:"weight" db:"WEIGHT"`
-	CreatedAt  string `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy  string `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy  string `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt  string `json:"updatedAt" db:"UPDATED_AT"`
+	ID                   string `json:"id" db:"ID"`
+	CategoryID           string `json:"categoryId" db:"CATEGORY_ID"`
+	Text                 string `json:"text" db:"TEXT"`
+	AllowMultipleAnswers bool   `json:"allowMultipleAnswers" db:"ALLOW_MULTIPLE_ANSWERS"`
+	EvidenceRequired     bool   `json:"evidenceRequired" db:"EVIDENCE_REQUIRED"`
+	DisplayOrder         int    `json:"displayOrder" db:"DISPLAY_ORDER"`
+	CreatedAt            string `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy            string `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy            string `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt            string `json:"updatedAt" db:"UPDATED_AT"`
 }
 
-type Answer struct {
-	ID         string  `json:"id" db:"ID"`
-	QuestionID string  `json:"questionId" db:"QUESTION_ID"`
-	LaunchID   *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
-	ShieldID   *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
-	Reply      string  `json:"reply" db:"REPLY"` // "" not provided, "YES" or "NO"
-	CreatedAt  string  `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy  string  `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy  string  `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt  string  `json:"updatedAt" db:"UPDATED_AT"`
+// PredefinedAnswer represents the possible answer choices for a question
+type PredefinedAnswer struct {
+	ID           string `json:"id" db:"ID"`
+	QuestionID   string `json:"questionId" db:"QUESTION_ID"`
+	Text         string `json:"text" db:"TEXT"`
+	Points       int    `json:"points" db:"POINTS"`
+	DisplayOrder int    `json:"displayOrder" db:"DISPLAY_ORDER"`
+	CreatedAt    string `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy    string `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy    string `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt    string `json:"updatedAt" db:"UPDATED_AT"`
 }
 
-// Answer replies
-const (
-	UnansweredReply = ""
-	YesReply        = "YES"
-	NoReply         = "NO"
-)
+// UserAnswer tracks when a question is answered in a launch or shield
+type UserAnswer struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	LaunchID    *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
+	ShieldID    *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
 
-type AnswerHistory struct {
-	ID            string  `json:"id" db:"ID"`
-	AnswerID      string  `json:"answerId" db:"ANSWER_ID"`
-	QuestionID    string  `json:"questionId" db:"QUESTION_ID"`
-	LaunchID      *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
-	ShieldID      *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
-	PreviousReply string  `json:"previousReply" db:"PREVIOUS_REPLY"`
-	NewReply      string  `json:"newReply" db:"NEW_REPLY"`
-	ChangedBy     string  `json:"changedBy" db:"CHANGED_BY"`
-	ChangedAt     string  `json:"changedAt" db:"CHANGED_AT"`
+// UserAnswerSelection tracks which predefined answer(s) were selected
+// Supports multiple selections for "select all that apply" questions
+type UserAnswerSelection struct {
+	ID                 string `json:"id" db:"ID"`
+	UserAnswerID       string `json:"userAnswerId" db:"USER_ANSWER_ID"`
+	PredefinedAnswerID string `json:"predefinedAnswerId" db:"PREDEFINED_ANSWER_ID"`
+	CreatedAt          string `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy          string `json:"createdBy" db:"CREATED_BY"`
+}
+
+// UserAnswerHistory tracks changes to user answers for audit trail
+type UserAnswerHistory struct {
+	ID                         string  `json:"id" db:"ID"`
+	UserAnswerID               string  `json:"userAnswerId" db:"USER_ANSWER_ID"`
+	QuestionID                 string  `json:"questionId" db:"QUESTION_ID"`
+	LaunchID                   *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
+	ShieldID                   *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
+	PreviousPredefinedAnswerID *string `json:"previousPredefinedAnswerId,omitempty" db:"PREVIOUS_PREDEFINED_ANSWER_ID"`
+	NewPredefinedAnswerID      string  `json:"newPredefinedAnswerId" db:"NEW_PREDEFINED_ANSWER_ID"`
+	ChangedBy                  string  `json:"changedBy" db:"CHANGED_BY"`
+	ChangedAt                  string  `json:"changedAt" db:"CHANGED_AT"`
+}
+
+// UserAnswerDetail is a user answer together with the predefined answers selected for it.
+type UserAnswerDetail struct {
+	UserAnswer
+	Selections []UserAnswerSelection `json:"selections"`
+}
+
+// AnswerSubmission is an input: the predefined answers a user selected for one question.
+type AnswerSubmission struct {
+	QuestionID          string   `json:"questionId"`
+	PredefinedAnswerIDs []string `json:"predefinedAnswerIds"`
+}
+
+// EvidenceSubmission is an input: the evidence a user recorded for one answered question.
+type EvidenceSubmission struct {
+	QuestionID  string `json:"questionId"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
 }
 
 type LaunchState string
@@ -188,27 +227,29 @@ type Launch struct {
 }
 
 type Evidence struct {
-	ID                 string `json:"id" db:"ID"`
-	QuestionCategoryID string `json:"questionCategoryId" db:"QUESTION_CATEGORY_ID"`
-	ShieldID           string `json:"shieldId" db:"SHIELD_ID"`
-	Description        string `json:"description" db:"DESCRIPTION"`
-	URL                string `json:"url" db:"URL"`
-	CreatedAt          string `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy          string `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy          string `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt          string `json:"updatedAt" db:"UPDATED_AT"`
+	ID           string  `json:"id" db:"ID"`
+	QuestionID   string  `json:"questionId" db:"QUESTION_ID"`
+	UserAnswerID string  `json:"userAnswerId" db:"USER_ANSWER_ID"`
+	LaunchID     *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
+	ShieldID     *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
+	Description  string  `json:"description" db:"DESCRIPTION"`
+	URL          string  `json:"url" db:"URL"`
+	CreatedAt    string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy    string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy    string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt    string  `json:"updatedAt" db:"UPDATED_AT"`
 }
 
 type ShieldState string
 
 const (
-	WaitingForAnswersShieldState  ShieldState = "waiting-4-answers"
-	AnswersSubmittedShieldState   ShieldState = "answers-submitted"
+	WaitingForAnswersShieldState   ShieldState = "waiting-4-answers"
+	AnswersSubmittedShieldState    ShieldState = "answers-submitted"
 	WaitingForEvidencesShieldState ShieldState = "waiting-4-evidences"
-	EvidencesSubmittedShieldState ShieldState = "evidences-submitted"
-	CompletedShieldState          ShieldState = "completed"
-	TimedOutShieldState           ShieldState = "timedout"
-	CancelledShieldState          ShieldState = "cancelled" // replaced by a newer shield of the same asset
+	EvidencesSubmittedShieldState  ShieldState = "evidences-submitted"
+	CompletedShieldState           ShieldState = "completed"
+	TimedOutShieldState            ShieldState = "timedout"
+	CancelledShieldState           ShieldState = "cancelled" // replaced by a newer shield of the same asset
 )
 
 type Shield struct {

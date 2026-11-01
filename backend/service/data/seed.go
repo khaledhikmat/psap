@@ -22,9 +22,9 @@ func stringPtr(s string) *string {
 // seed fills each seeded table, but only when that table is empty, so it never overwrites
 // or duplicates data that has since been edited.
 //
-// Launch question weights add up to 100. A launch's points are the sum of the weights of its
-// YES answers, and its tier is the one whose [FromPoint, ToPoint] range holds the points:
-// the higher the score, the more critical the asset and the lower the tier number.
+// A launch's points are the sum of the points of its selected answers (its weighted score in
+// hundredths), and its tier is the one whose [FromPoint, ToPoint] range holds the points: the
+// higher the score, the more critical the asset and the lower the tier number.
 func seed(ctx context.Context, db *sqlx.DB) error {
 	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -32,7 +32,7 @@ func seed(ctx context.Context, db *sqlx.DB) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	categories, questions := seedQuestions()
+	categories, questions, predefined := seedQuestions()
 	seeded := []string{}
 	for _, s := range []struct {
 		table table
@@ -42,6 +42,7 @@ func seed(ctx context.Context, db *sqlx.DB) error {
 		{tiersTable, func() error { return seedRows(ctx, tx, tiersTable, seedTiers()) }},
 		{questionCategoriesTable, func() error { return seedRows(ctx, tx, questionCategoriesTable, categories) }},
 		{questionsTable, func() error { return seedRows(ctx, tx, questionsTable, questions) }},
+		{predefinedAnswersTable, func() error { return seedRows(ctx, tx, predefinedAnswersTable, predefined) }},
 		{assetsTable, func() error { return seedRows(ctx, tx, assetsTable, seedAssets()) }},
 	} {
 		var n int
@@ -100,16 +101,21 @@ func seedWorkers() []model.Worker {
 	}
 }
 
+// seedTiers holds the working score ranges of prd.md in hundredths: a launch's points are its
+// weighted score (1.00–5.00) times 100. Tier 4 also takes 0, which only unanswered questions
+// can produce. Non-Tier can never be calculated; the assessor assigns it when validating.
 func seedTiers() []model.Tier {
 	return []model.Tier{
-		{ID: "tier-1", Name: "Tier 1", Title: "Critical", FromPoint: 75, ToPoint: 100, Cadence: model.ThreeMonthsTierCadence,
-			Description: "Mission-critical or highly sensitive assets. Strongest protection, reviewed every three months."},
-		{ID: "tier-2", Name: "Tier 2", Title: "High", FromPoint: 50, ToPoint: 74, Cadence: model.SixMonthsTierCadence,
-			Description: "Important assets whose compromise would seriously disrupt the business. Reviewed every six months."},
-		{ID: "tier-3", Name: "Tier 3", Title: "Moderate", FromPoint: 25, ToPoint: 49, Cadence: model.YearlyTierCadence,
-			Description: "Assets with moderate impact. Standard protection, reviewed yearly."},
-		{ID: "tier-4", Name: "Tier 4", Title: "Low", FromPoint: 0, ToPoint: 24, Cadence: model.YearlyTierCadence,
-			Description: "Low-impact assets. Baseline protection, reviewed yearly."},
+		{ID: "tier-1", Name: "Tier 1", Title: "Severe impact", FromPoint: 400, ToPoint: 500, Cadence: model.ThreeMonthsTierCadence,
+			Description: "Any resource whose loss, damage or compromise results in a degree of impact that critically changes and causes loss or irreversible business capabilities."},
+		{ID: "tier-2", Name: "Tier 2", Title: "Significant impact", FromPoint: 300, ToPoint: 399, Cadence: model.SixMonthsTierCadence,
+			Description: "Any resource whose loss, damage or compromise results in a degree of impact that damages and degrades business capabilities."},
+		{ID: "tier-3", Name: "Tier 3", Title: "Moderate impact", FromPoint: 200, ToPoint: 299, Cadence: model.YearlyTierCadence,
+			Description: "Any resource whose loss, damage or compromise results in a degree of impact that threatens to damage and degrade business capabilities."},
+		{ID: "tier-4", Name: "Tier 4", Title: "Minor impact", FromPoint: 0, ToPoint: 199, Cadence: model.YearlyTierCadence,
+			Description: "Any resource whose loss, damage or compromise results in a degree of impact that may disrupt business capabilities."},
+		{ID: "non-tier", Name: "Non-Tier", Title: "No tier", FromPoint: -1, ToPoint: -1,
+			Description: "Not a secure room or area. Assigned by the assessor when validating a launch; never calculated."},
 	}
 }
 
@@ -130,137 +136,207 @@ type seedCategory struct {
 }
 
 type seedQuestion struct {
-	text   string
-	weight int
+	text     string
+	multiple bool // more than one answer may be selected
+	answers  []seedAnswer
 }
 
-func seedQuestions() ([]model.QuestionCategory, []model.Question) {
+type seedAnswer struct {
+	text   string
+	points int
+}
+
+func seedQuestions() ([]model.QuestionCategory, []model.Question, []model.PredefinedAnswer) {
 	categories := []model.QuestionCategory{}
 	questions := []model.Question{}
+	answers := []model.PredefinedAnswer{}
 	add := func(t model.QuestionCategoryType, cats []seedCategory) {
 		for _, c := range cats {
 			catID := fmt.Sprintf("%s-%s", t, c.key)
 			categories = append(categories, model.QuestionCategory{ID: catID, Title: c.title, Text: c.text, Type: t})
 			for i, q := range c.questions {
+				qID := fmt.Sprintf("%s-%d", catID, i+1)
 				questions = append(questions, model.Question{
-					ID: fmt.Sprintf("%s-%d", catID, i+1), CategoryID: catID, Text: q.text, Weight: q.weight,
+					ID: qID, CategoryID: catID, Text: q.text, AllowMultipleAnswers: q.multiple,
+					// Shield requires evidence for every answer; launch is validated by the assessor instead.
+					EvidenceRequired: t == model.ShieldQuestionCategory,
+					DisplayOrder:     i + 1,
 				})
+				for j, a := range q.answers {
+					answers = append(answers, model.PredefinedAnswer{
+						ID: fmt.Sprintf("%s-%d", qID, j+1), QuestionID: qID, Text: a.text, Points: a.points, DisplayOrder: j + 1,
+					})
+				}
 			}
 		}
 	}
 	add(model.LaunchQuestionCategory, launchCategories)
 	add(model.ShieldQuestionCategory, shieldCategories)
-	return categories, questions
+	return categories, questions, answers
 }
 
-// Launch questions classify an asset. Their weights add up to 100.
+// scored is a single-choice question whose answers score 1, 2, 3… in the order given (higher
+// means more critical or more exposed). Each answer's points are its score times weight, the
+// question's share of the total score; a weight of 0 makes the question informational only.
+func scored(text string, weight int, answers ...string) seedQuestion {
+	q := seedQuestion{text: text}
+	for i, a := range answers {
+		q.answers = append(q.answers, seedAnswer{a, (i + 1) * weight})
+	}
+	return q
+}
+
+// Launch questions classify an asset by business impact (see prd.md). Every question scores
+// 1–5 in the order its answers appear. The launch score is
+// Q3×0.20 + Q5×0.25 + Q6×0.20 + Q7×0.25 + Q8×0.10; Q1, Q2 and Q4 carry no weight. Weights are
+// percentages, so a launch's points are its score in hundredths and tiers are ranges of those.
 var launchCategories = []seedCategory{
-	{"occupancy", "Occupancy & Personnel", "Who works in or visits the space.", []seedQuestion{
-		{"Do more than 50 people regularly work in the space?", 3},
-		{"Is the space staffed outside business hours?", 2},
-		{"Do executives or other high-profile people regularly work in the space?", 4},
-		{"Do contractors or vendors work in the space unescorted?", 2},
-		{"Is cash or are payments handled in the space?", 2},
+	{"room-function", "Room Function", "Functions that the room supports.", []seedQuestion{
+		{text: "What functions does this room or area support? Select all that apply.", multiple: true, answers: []seedAnswer{
+			{"Safekeeping of valuables such as currency or IT equipment", 0},
+			{"High-value asset storage", 0},
+			{"Data transmission / network infrastructure", 0},
+			{"Data storage", 0},
+			{"Sensitive business operations", 0},
+			{"Building infrastructure such as water, electrical or HVAC", 0},
+			{"Executive leadership area", 0},
+			{"Physical security operations", 0},
+			{"Life-safety systems", 0},
+			{"Other", 0},
+		}},
 	}},
-	{"information", "Sensitive Information", "Information stored or processed in the space.", []seedQuestion{
-		{"Is confidential or proprietary information stored in the space?", 3},
-		{"Is personal data (PII) of customers or employees processed in the space?", 4},
-		{"Are classified or export-controlled materials handled in the space?", 5},
-		{"Are paper records containing sensitive data kept in the space?", 2},
+	{"regulatory-requirement", "Regulatory Requirement", "Legal, regulatory or business requirements for physical security.", []seedQuestion{
+		scored("Are there any legal, regulatory, or business requirements that require physical security measures for this room or area?", 0,
+			"Yes: Requirement identified by business/SME",
+			"No: No known requirement",
+			"Unknown: Needs Security/Compliance validation"),
 	}},
-	{"operations", "Critical Operations", "How much the business depends on the space.", []seedQuestion{
-		{"Does the space host servers, network or telecom equipment?", 4},
-		{"Would an outage of the space stop a critical business process?", 5},
-		{"Does the space support 24x7 operations?", 3},
-		{"Is the space a single point of failure with no alternate site?", 4},
-		{"Does the space control building systems (power, HVAC, fire suppression)?", 3},
+	{"asset-type", "Asset Type", "What the room or area houses.", []seedQuestion{
+		scored("What type of assets are housed in this room or area? Answer for the highest-criticality asset, system or information actually housed in the room.", 20,
+			"General: General office equipment or supplies",
+			"Department-specific: Department-specific equipment, records or resources",
+			"Sensitive: Shared business systems or sensitive information",
+			"Regulatory: Association systems, security systems or regulated information",
+			"Mission-critical infrastructure: life-safety systems or highly sensitive assets"),
 	}},
-	{"hazards", "Hazardous Materials", "Dangerous materials present in the space.", []seedQuestion{
-		{"Are hazardous chemicals stored or used in the space?", 3},
-		{"Are flammable materials or fuels stored in the space?", 3},
-		{"Are pressurized gases or gas cylinders present?", 2},
-		{"Is radioactive or biological material present?", 4},
+	{"routine-access", "Routine Access", "Who legitimately needs access.", []seedQuestion{
+		scored("How limited is the legitimate business population requiring access to this asset?", 0,
+			"Broad business population: no access restrictions",
+			"Defined business population: all badged employees and contractors",
+			"Limited business population: badged employees only",
+			"Restricted access population: access limited to a small number of specifically approved individuals",
+			"Highly restricted access only: normally limited to very few individuals and may require approval for a specific purpose each time"),
 	}},
-	{"valuables", "Valuable Assets", "Valuable property kept in the space.", []seedQuestion{
-		{"Does the space contain equipment worth more than $1M in total?", 3},
-		{"Are high-value portable items (laptops, devices) stored in the space?", 2},
-		{"Is inventory or finished product stored in the space?", 2},
-		{"Are cash, artwork or precious materials kept in the space?", 2},
-		{"Are prototypes or other R&D intellectual property kept in the space?", 3},
+	{"business-dependency", "Business Dependency", "How much daily operations depend on the room.", []seedQuestion{
+		scored("How dependent are daily business operations on this room or area?", 25,
+			"Minimal: convenience function only",
+			"Limited: supports a single team or department",
+			"Moderate: supports multiple departments or a business function",
+			"Significant: supports critical business operations or major site functions",
+			"Severe: supports Association-wide operations or could cause major business interruption"),
 	}},
-	{"access", "Public Access", "How exposed the space is to outsiders.", []seedQuestion{
-		{"Is the space open to the public?", 3},
-		{"Is the space on the ground floor or street-facing?", 2},
-		{"Does the space share an entrance with other tenants?", 2},
-		{"Are deliveries received directly into the space?", 1},
+	{"recovery-capability", "Recovery Capability", "How quickly operations could be restored.", []seedQuestion{
+		scored("If this room or area became unavailable, how quickly could operations be restored using existing recovery plans, redundancies or alternate locations?", 20,
+			"Within hours",
+			"Within 1 day",
+			"Within 1 week",
+			"Within 1 month",
+			"More than 1 month or no practical recovery option"),
 	}},
-	{"compliance", "Regulatory & Compliance", "Regulations that apply to the space.", []seedQuestion{
-		{"Is the space in scope for PCI DSS?", 2},
-		{"Is the space in scope for HIPAA?", 2},
-		{"Do government security-clearance requirements apply to the space?", 3},
-		{"Is the space's physical security audited by an external party?", 2},
-		{"Does the space require environmental or safety permits?", 1},
+	{"unauthorized-access-impact", "Unauthorized Access Impact", "Impact of access by an unauthorized person.", []seedQuestion{
+		scored("What could be the impact if assets, systems, information or equipment in this room were accessed by an unauthorized person?", 25,
+			"No meaningful impact",
+			"Limited impact to a small workshop",
+			"Moderate impact to a department or business function",
+			"Significant impact to multiple departments, a site or customers",
+			"Severe enterprise, regulatory, financial or reputational impact"),
 	}},
-	{"continuity", "Business Continuity", "Recovery needs and history of the space.", []seedQuestion{
-		{"Must the space recover from a disruption in under 24 hours?", 3},
-		{"Does the space host backup or disaster-recovery systems?", 3},
-		{"Has the space had a security incident in the last three years?", 4},
-		{"Is the space in an area prone to natural disasters?", 2},
+	{"backup-alternate-resources", "Backup / Alternate Resources", "Availability of backups if a primary system fails.", []seedQuestion{
+		// "Not applicable" adds no criticality, so it scores like the lowest answer.
+		{text: "Are backup systems or alternate resources available if a primary system or component in this room fails?", answers: []seedAnswer{
+			{"Full redundancy: continuity with little or no interruption", 10},
+			{"High redundancy: backup available with minimal downtime", 20},
+			{"Moderate redundancy: backups exist, but single points of failure remain", 30},
+			{"Limited redundancy: some backup capability exists but recovery requires significant effort", 40},
+			{"No redundancy: critical functions depend on a single point of failure", 50},
+			{"Not applicable: no function requiring redundancy", 10},
+		}},
 	}},
 }
 
-// Shield questions assess the protection already in place.
+// Shield questions score observable exposure (see prd.md). Each is single-choice, scored 1
+// (lowest exposure) to 5 (highest) in the order its answers appear, and requires evidence.
 var shieldCategories = []seedCategory{
-	{"perimeter", "Perimeter Security", "Barriers around the building and site.", []seedQuestion{
-		{"Is the site enclosed by a fence or wall?", 3},
-		{"Are vehicle barriers or bollards installed at entrances?", 2},
-		{"Are perimeter gates locked outside business hours?", 2},
-		{"Is perimeter signage (no trespassing, monitored) posted?", 1},
+	{"physical-proximity", "Physical Proximity", "How far the room is from uncontrolled areas.", []seedQuestion{
+		scored("Counting from the nearest uncontrolled or public point, how many access-controlled zone boundaries must be crossed to reach the room or area?", 1,
+			"Must cross 3 or more access-controlled zone boundaries",
+			"Must cross 2 access-controlled zone boundaries",
+			"Must cross 1 access-controlled zone boundary",
+			"Can reach the immediate area without crossing a zone boundary, but not directly from a public area",
+			"Can directly approach the asset from a public or unrestricted area"),
 	}},
-	{"access-control", "Access Control", "How entry to the space is controlled.", []seedQuestion{
-		{"Is entry controlled by badge readers?", 4},
-		{"Is multi-factor entry (badge + PIN or biometric) required?", 4},
-		{"Are access rights reviewed at least quarterly?", 3},
-		{"Is anti-tailgating protection (turnstiles, mantraps) in place?", 3},
-		{"Are physical keys inventoried and controlled?", 2},
+	{"entry", "Entry", "How hard it is to get in through the room's own boundary.", []seedQuestion{
+		scored("How difficult would it be for an unauthorized individual to gain entry through the room or area’s own boundary?", 1,
+			"Entry requires defeating 3 or more independent barriers at the room/area boundary",
+			"Entry requires defeating 2 independent barriers at the room/area boundary",
+			"Entry requires defeating 1 hardened or rated barrier (per job-aid barrier table)",
+			"Entry requires bypassing 1 standard, unrated barrier (standard door, gate or similar)",
+			"No physical barrier prevents entry"),
 	}},
-	{"surveillance", "Video Surveillance", "Camera coverage and recording.", []seedQuestion{
-		{"Do cameras cover all entrances and exits?", 4},
-		{"Is footage retained for at least 30 days?", 2},
-		{"Is video monitored live?", 3},
-		{"Are cameras checked for faults at least monthly?", 1},
+	{"time", "Time", "How long it takes to reach the room.", []seedQuestion{
+		scored("How long does it take to walk from the nearest uncontrolled approach point to the room or area’s outermost door or opening? (Record a timed walk)", 1,
+			"More than 10 minutes",
+			"5 to 10 minutes",
+			"2 to 5 minutes",
+			"30 seconds to 2 minutes",
+			"Less than 30 seconds"),
 	}},
-	{"intrusion", "Intrusion Detection", "Alarms that detect forced or unauthorized entry.", []seedQuestion{
-		{"Are doors fitted with door-forced and door-held alarms?", 3},
-		{"Are motion sensors installed?", 2},
-		{"Do alarms report to a monitored central station?", 3},
-		{"Is the alarm system tested at least twice a year?", 2},
-		{"Do alarms have backup power?", 2},
+	{"skill", "Skill", "What it takes to defeat the room's boundary.", []seedQuestion{
+		scored("What level of skill, tools, inside knowledge, or specialized equipment would be needed to bypass or defeat the room or area’s physical boundary?", 1,
+			"Requires specialized technical knowledge and equipment not commonly available",
+			"Requires specialized equipment or documented technical knowledge",
+			"Requires commercially available tools and basic knowledge of the barrier or control",
+			"Ordinary hand tools or simple manipulation could defeat the boundary",
+			"No tools or specialized knowledge needed; boundary is easily bypassed"),
 	}},
-	{"lighting", "Lighting", "Lighting around and inside the space.", []seedQuestion{
-		{"Are entrances and parking areas lit at night?", 2},
-		{"Is emergency lighting installed?", 2},
-		{"Is exterior lighting checked regularly?", 1},
-		{"Does lighting support camera image quality at night?", 2},
+	{"visual-exposure", "Visual Exposure", "How visible the asset is.", []seedQuestion{
+		scored("How easily can the asset be seen and observed in its environment?", 1,
+			"Not visible from any uncontrolled area",
+			"Visible only from a restricted or controlled adjacent area",
+			"Partially visible from an uncontrolled area",
+			"Fully visible from an uncontrolled (non-public) area",
+			"Fully visible from a public or unrestricted area"),
 	}},
-	{"personnel", "Security Personnel", "Guards and security staff.", []seedQuestion{
-		{"Is a security officer on site during business hours?", 3},
-		{"Is a security officer on site after hours?", 3},
-		{"Do guards follow documented patrol routes?", 2},
-		{"Are guards trained in incident response?", 2},
-		{"Is there a staffed security operations center?", 3},
+	{"recog", "Recog", "How easily the asset's purpose is recognized.", []seedQuestion{
+		scored("How easily can the asset’s purpose, value or importance be understood by someone unfamiliar with it?", 1,
+			"Purpose cannot reasonably be determined from visible characteristics",
+			"Purpose can only be determined with specialized or internal knowledge",
+			"General function can be inferred, but specific purpose/value is not apparent",
+			"Purpose is apparent from signage, equipment, layout or routine activity",
+			"Purpose and security significance are explicitly identified or obvious"),
 	}},
-	{"emergency", "Emergency Response", "Preparedness for emergencies.", []seedQuestion{
-		{"Is there a documented emergency response plan?", 3},
-		{"Are evacuation drills held at least yearly?", 2},
-		{"Are emergency contacts posted and up to date?", 1},
-		{"Is there a mass-notification system for occupants?", 2},
+	{"information-availability", "Information Availability", "How much public information exists about the asset.", []seedQuestion{
+		scored("How readily available is information about the asset’s characteristics, location or function to the general public?", 1,
+			"No public information identifies the asset or its location",
+			"General facility information is public, but the asset is not identified",
+			"Asset type/function is publicly identifiable, but location/details are not",
+			"Asset location or operational details are publicly available",
+			"Detailed location, function, configuration or access information is publicly available"),
 	}},
-	{"visitors", "Visitor Management", "How visitors are handled.", []seedQuestion{
-		{"Must visitors sign in and show ID?", 3},
-		{"Are visitors issued temporary badges?", 2},
-		{"Are visitors escorted at all times?", 3},
-		{"Are visitor logs kept for at least a year?", 1},
-		{"Are deliveries screened before entering the space?", 2},
+	{"human-operational-exposure", "Human / Operational Exposure", "Who not assigned to the room enters its area.", []seedQuestion{
+		scored("Which people not permanently assigned to the room or area enter or work in the immediate area, and how often?", 1,
+			"No non-assigned persons, or exception-only (escorted) access",
+			"Non-assigned persons enter less than monthly",
+			"Non-assigned employees or contractors enter monthly to weekly",
+			"Contractors or service personnel enter daily or routinely",
+			"Visitors, customers/members or the public enter daily or routinely"),
+	}},
+	{"exterior-environmental-exposure", "Exterior / Environmental Exposure", "Exposure to exterior and environmental conditions.", []seedQuestion{
+		scored("Does the room or area have direct exposure to exterior, uncontrolled or environmental conditions that affect required protection?", 1,
+			"Fully interior; no uncontrolled adjacency or exterior exposure",
+			"Adjacent to lower-controlled interior space only",
+			"Exterior wall, service penetration or nearby utility/environmental exposure",
+			"Accessible exterior opening, service route, dock or equipment opening",
+			"Direct public exterior door, vehicle-accessible boundary or high-risk environmental exposure"),
 	}},
 }
