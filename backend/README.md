@@ -54,6 +54,21 @@ MODE_PROC=cli go run . happy          # launch: start → submit → finalize �
 MODE_PROC=cli go run . relaunch       # relaunch mid-launch cancels the running launch
 MODE_PROC=cli go run . timeout        # reminders/warnings/escalations until timed out (~25s)
 MODE_PROC=cli go run . shield-happy   # shield: submit answers → submit evidences → complete
+
+# terminal 4 - this an API Layer
+MODE_PROC=httpserver go run . 
+```
+
+## Database Access
+
+```bash
+cd backend
+sqlite3 psap.db
+.tables
+.schema
+.schema <table-name>
+SELECT * FROM ASSETS;
+.quit
 ```
 
 ## Scoring
@@ -196,14 +211,3 @@ Evidence is recorded for questions that already have an answer.
 }
 ```
 
-## Database Access
-
-```bash
-cd backend
-sqlite3 psap.db
-.tables
-.schema
-.schema <table-name>
-SELECT * FROM ASSETS;
-.quit
-```

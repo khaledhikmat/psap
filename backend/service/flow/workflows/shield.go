@@ -26,8 +26,8 @@ const (
 
 type ShieldRequest struct {
 	AssetID           string
-	BusinessOwner     string // worker ID; answers the shield questions and gets reminders/warnings
-	BusinessManager   string // worker ID; gets escalations
+	BusinessOwner     string // worker ID associated with the asset
+	BusinessManager   string // worker ID; answers shield questions and receives reminders/warnings/escalations
 	ReminderTimeout   int
 	MaxReminders      int
 	WarningTimeout    int
@@ -312,7 +312,7 @@ func (w *shield) saveAnswers(answers []model.AnswerSubmission) {
 	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.SaveShieldAnswers, shieldactivities.ShieldAnswersSaveRequest{
 		ShieldID:  w.id,
 		Answers:   answers,
-		UpdatedBy: w.req.BusinessOwner,
+		UpdatedBy: w.req.BusinessManager,
 	}).Get(w.ctx, &res)
 	if err != nil {
 		w.logger.Error("Failed to save shield answers", "assetID", w.req.AssetID, "ShieldID", w.id, "error", err)
@@ -327,7 +327,7 @@ func (w *shield) finalizeAnswers(answers []model.AnswerSubmission) {
 	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.FinalizeAnswers, shieldactivities.ShieldAnswersFinalizeRequest{
 		ShieldID:  w.id,
 		Answers:   answers,
-		UpdatedBy: w.req.BusinessOwner,
+		UpdatedBy: w.req.BusinessManager,
 	}).Get(w.ctx, &res)
 	if err != nil {
 		w.logger.Error("Failed to finalize shield answers", "assetID", w.req.AssetID, "ShieldID", w.id, "error", err)
@@ -349,7 +349,7 @@ func (w *shield) saveEvidences(evidences []model.EvidenceSubmission) {
 	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.SaveEvidences, shieldactivities.ShieldEvidencesSaveRequest{
 		ShieldID:  w.id,
 		Evidences: evidences,
-		UpdatedBy: w.req.BusinessOwner,
+		UpdatedBy: w.req.BusinessManager,
 	}).Get(w.ctx, &res)
 	if err != nil {
 		w.logger.Error("Failed to save shield evidences", "assetID", w.req.AssetID, "ShieldID", w.id, "error", err)
@@ -365,7 +365,7 @@ func (w *shield) finalizeEvidences(evidences []model.EvidenceSubmission) {
 	err := workflow.ExecuteActivity(w.ctx, w.shieldActs.FinalizeEvidences, shieldactivities.ShieldEvidencesFinalizeRequest{
 		ShieldID:  w.id,
 		Evidences: evidences,
-		UpdatedBy: w.req.BusinessOwner,
+		UpdatedBy: w.req.BusinessManager,
 	}).Get(w.ctx, &res)
 	if err != nil {
 		w.logger.Error("Failed to finalize shield evidences", "assetID", w.req.AssetID, "ShieldID", w.id, "error", err)
@@ -408,8 +408,7 @@ func (w *shield) nudgeTimeout() {
 	}
 }
 
-// Reminders and warnings go to whoever the shield is waiting on; escalations go to the
-// business manager.
+// The business manager completes SHIELD and receives all related nudges.
 
 func (w *shield) remind() bool {
 	recipient, task := w.waitingOn()
@@ -436,15 +435,15 @@ func (w *shield) escalate() bool {
 func (w *shield) waitingOn() (recipient, task string) {
 	switch w.state {
 	case model.WaitingForAnswersShieldState:
-		return w.req.BusinessOwner, "submit your shield answers"
+		return w.req.BusinessManager, "submit the shield exposure ratings"
 	case model.WaitingForEvidencesShieldState:
-		return w.req.BusinessOwner, "submit your shield evidences"
+		return w.req.BusinessManager, "submit the shield evidence"
 	case model.AnswersSubmittedShieldState:
-		return w.req.BusinessOwner, "submit your shield evidences"
+		return w.req.BusinessManager, "submit the shield evidence"
 	case model.EvidencesSubmittedShieldState:
-		return w.req.BusinessOwner, "submit your shield answers"
+		return w.req.BusinessManager, "complete the shield"
 	default:
-		return w.req.BusinessOwner, "complete the shield"
+		return w.req.BusinessManager, "complete the shield"
 	}
 }
 

@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { get, post } from "./api";
 import type {
   Asset,
   AssetRequest,
   Baseline,
+  Evidence,
   Launch,
   PredefinedAnswer,
   Question,
@@ -11,13 +19,45 @@ import type {
   Tier,
   UserAnswerDetail,
   Worker,
+  Shield,
 } from "./types";
 
-type View = "dashboard" | "asset" | "launch";
+type View = "dashboard" | "asset" | "assessment";
+type DemoActor = {
+  key: string;
+  role: "Business owner" | "Business manager";
+  worker: Worker;
+};
 type Notice = { kind: "success" | "error" | "info"; text: string };
 
 const emptyArray = <T,>(): T[] => [];
 const waitingForAnswers = "waiting-4-answers";
+const waitingForTierApproval = "waiting-4-tier-approval";
+const timedOut = "timedout";
+const launchesInReview = new Set(["answers-submitted", "waiting-4-tier-approval"]);
+const shieldsInProgress = new Set([
+  "waiting-4-answers",
+  "answers-submitted",
+  "waiting-4-evidences",
+  "evidences-submitted",
+]);
+
+function mergeLaunchStates(
+  refreshed: Launch[],
+  previous: Launch[],
+): Launch[] {
+  const previousById = new Map(previous.map((launch) => [launch.id, launch]));
+  return refreshed.map((launch) => {
+    const oldLaunch = previousById.get(launch.id);
+    if (
+      oldLaunch?.state === "answers-submitted" &&
+      launch.state === waitingForAnswers
+    ) {
+      return { ...launch, state: oldLaunch.state };
+    }
+    return launch;
+  });
+}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
@@ -26,6 +66,9 @@ function errorText(error: unknown): string {
 function assetStateLabel(state: string): string {
   const labels: Record<string, string> = {
     "pending-launch": "Needs LAUNCH",
+    "waiting-4-answers": "Owner input needed",
+    "answers-submitted": "Submitted for review",
+    "waiting-4-tier-approval": "Awaiting review",
     launched: "Launch complete",
     "pending-tier-validation": "Awaiting validation",
     "pending-shield": "Shield assessment",
@@ -49,6 +92,19 @@ function launchStateLabel(state: string): string {
   return labels[state] ?? state.replaceAll("-", " ");
 }
 
+function shieldStateLabel(state: string): string {
+  const labels: Record<string, string> = {
+    "waiting-4-answers": "Answers in progress",
+    "answers-submitted": "Answers submitted",
+    "waiting-4-evidences": "Evidence in progress",
+    "evidences-submitted": "Finalizing",
+    completed: "Completed",
+    timedout: "Timed out",
+    cancelled: "Replaced",
+  };
+  return labels[state] ?? state.replaceAll("-", " ");
+}
+
 function locationLabel(asset: Asset): string {
   return [
     asset.campus,
@@ -58,6 +114,23 @@ function locationLabel(asset: Asset): string {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+function assetDisplayState(
+  asset: Asset,
+  launches: Launch[],
+  isBusinessOwner: boolean,
+): string {
+  const assetLaunches = launches.filter((launch) => launch.assetId === asset.id);
+  const latestLaunch = [...assetLaunches].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  )[0];
+  const activeLaunch = isBusinessOwner
+    ? assetLaunches.find((launch) => launch.state === waitingForAnswers)
+    : undefined;
+  return latestLaunch && launchesInReview.has(latestLaunch.state)
+    ? latestLaunch.state
+    : activeLaunch?.state ?? asset.state;
 }
 
 function formatDate(value: string): string {
@@ -71,22 +144,50 @@ function formatDate(value: string): string {
       }).format(date);
 }
 
+function safeEvidenceHref(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [launches, setLaunches] = useState<Launch[]>([]);
+  const [shields, setShields] = useState<Shield[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [tiers, setTiers] = useState<Tier[]>([]);
-  const [ownerId, setOwnerId] = useState("");
+  const [actorKey, setActorKey] = useState("");
   const [view, setView] = useState<View>("dashboard");
   const [notice, setNotice] = useState<Notice | null>(null);
   const [loadError, setLoadError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [showRequestDialog, setShowRequestDialog] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [assetSearch, setAssetSearch] = useState("");
   const [assetLaunches, setAssetLaunches] = useState<Launch[]>([]);
+  const [assetShields, setAssetShields] = useState<Shield[]>([]);
   const [assetBaselines, setAssetBaselines] = useState<Baseline[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeLaunch, setActiveLaunch] = useState<Launch | null>(null);
+  const [activeShield, setActiveShield] = useState<Shield | null>(null);
+  const [tierOverride, setTierOverride] = useState("");
+  const [evidenceDrafts, setEvidenceDrafts] = useState<
+    Record<string, { description: string; url: string }>
+  >({});
+  const [assessmentType, setAssessmentType] = useState<"launch" | "shield">(
+    "launch",
+  );
+  const [assessmentReadOnly, setAssessmentReadOnly] = useState(false);
+  const [evidenceByQuestion, setEvidenceByQuestion] = useState<
+    Record<string, Evidence[]>
+  >({});
   const [categories, setCategories] = useState<QuestionCategory[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [predefinedAnswers, setPredefinedAnswers] = useState<
@@ -101,85 +202,247 @@ function App() {
   const [categoryIndex, setCategoryIndex] = useState(0);
   const [launchLoading, setLaunchLoading] = useState(false);
   const [launchSaving, setLaunchSaving] = useState(false);
+  const [shieldSaving, setShieldSaving] = useState(false);
   const [launchError, setLaunchError] = useState("");
 
-  async function refreshDashboard() {
-    setIsLoading(true);
+  const refreshDashboard = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
     setLoadError("");
     try {
-      const [assetRows, launchRows, workerRows, tierRows] = await Promise.all([
+      const [assetRows, launchRows, shieldRows, workerRows, tierRows] = await Promise.all([
         get<Asset[]>("/assets"),
         get<Launch[]>("/launches"),
+        get<Shield[]>("/shields"),
         get<Worker[]>("/workers"),
         get<Tier[]>("/tiers"),
       ]);
       setAssets(assetRows ?? emptyArray());
-      setLaunches(launchRows ?? emptyArray());
+      setLaunches((previous) =>
+        mergeLaunchStates(launchRows ?? emptyArray(), previous),
+      );
+      setShields(shieldRows ?? emptyArray());
       setWorkers(workerRows ?? emptyArray());
       setTiers(tierRows ?? emptyArray());
     } catch (error) {
       setLoadError(errorText(error));
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void refreshDashboard();
-  }, []);
+  }, [refreshDashboard]);
 
-  const ownerOptions = useMemo(() => {
-    const assignedOwnerIds = new Set(
-      assets.map((asset) => asset.businessOwner).filter(Boolean),
-    );
-    const assignedOwners = workers.filter((worker) =>
-      assignedOwnerIds.has(worker.id),
-    );
-    return assignedOwners.length > 0 ? assignedOwners : workers;
+  useEffect(() => {
+    if (view !== "dashboard" || isLoading) return;
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshDashboard(false);
+      }
+    };
+    const interval = window.setInterval(refreshIfVisible, 5000);
+    window.addEventListener("focus", refreshIfVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshIfVisible);
+    };
+  }, [isLoading, refreshDashboard, view]);
+
+  const demoActors = useMemo(() => {
+    const actors: DemoActor[] = [];
+    for (const worker of workers) {
+      if (assets.some((asset) => asset.businessOwner === worker.id)) {
+        actors.push({
+          key: `owner:${worker.id}`,
+          role: "Business owner",
+          worker,
+        });
+      }
+      if (assets.some((asset) => asset.businessManager === worker.id)) {
+        actors.push({
+          key: `manager:${worker.id}`,
+          role: "Business manager",
+          worker,
+        });
+      }
+    }
+    return actors;
   }, [assets, workers]);
 
   useEffect(() => {
     if (
-      ownerOptions.length > 0 &&
-      !ownerOptions.some((worker) => worker.id === ownerId)
+      demoActors.length > 0 &&
+      !demoActors.some((actor) => actor.key === actorKey)
     ) {
-      setOwnerId(ownerOptions[0].id);
+      setActorKey(demoActors[0].key);
     }
-  }, [ownerId, ownerOptions]);
+  }, [actorKey, demoActors]);
 
-  const ownerAssets = useMemo(
-    () => assets.filter((asset) => asset.businessOwner === ownerId),
-    [assets, ownerId],
+  const activeActor = demoActors.find((actor) => actor.key === actorKey);
+  const activeWorkerId = activeActor?.worker.id ?? "";
+  const isBusinessOwner = activeActor?.role === "Business owner";
+  const isBusinessManager = activeActor?.role === "Business manager";
+
+  useEffect(() => {
+    document.title = isBusinessManager
+      ? "PSAP | Business Manager"
+      : "PSAP | Business Owner";
+  }, [isBusinessManager]);
+
+  useEffect(() => {
+    if (demoActors.length === 0) return;
+    const requestedRole =
+      location.pathname === "/business-manager"
+        ? "Business manager"
+        : location.pathname === "/business-owner"
+          ? "Business owner"
+          : null;
+    if (requestedRole === null) {
+      const actor = demoActors[0];
+      setActorKey(actor.key);
+      navigate(
+        actor.role === "Business manager"
+          ? "/business-manager"
+          : "/business-owner",
+        { replace: true },
+      );
+      return;
+    }
+    const matchingActor = demoActors.find((actor) => actor.role === requestedRole);
+    if (!matchingActor) {
+      navigate("/business-owner", { replace: true });
+      return;
+    }
+    if (activeActor?.role !== requestedRole) {
+      setActorKey(matchingActor.key);
+    }
+  }, [activeActor?.role, demoActors, location.pathname, navigate]);
+  const visibleAssets = useMemo(
+    () =>
+      assets.filter((asset) =>
+        isBusinessOwner
+          ? asset.businessOwner === activeWorkerId
+          : asset.businessManager === activeWorkerId,
+      ),
+    [activeWorkerId, assets, isBusinessOwner],
   );
-  const ownerAssetIds = useMemo(
-    () => new Set(ownerAssets.map((asset) => asset.id)),
-    [ownerAssets],
+  const visibleAssetIds = useMemo(
+    () => new Set(visibleAssets.map((asset) => asset.id)),
+    [visibleAssets],
   );
-  const ownerLaunches = useMemo(
-    () => launches.filter((launch) => ownerAssetIds.has(launch.assetId)),
-    [launches, ownerAssetIds],
+  const visibleLaunches = useMemo(
+    () => launches.filter((launch) => visibleAssetIds.has(launch.assetId)),
+    [launches, visibleAssetIds],
+  );
+  const managerReviewQueue = useMemo(
+    () =>
+      isBusinessManager
+        ? visibleLaunches
+            .filter((launch) => launch.state === waitingForTierApproval)
+            .filter(
+              (launch) =>
+                !visibleLaunches.some(
+                  (other) =>
+                    other.assetId === launch.assetId &&
+                    other.createdAt > launch.createdAt,
+                ),
+            )
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        : [],
+    [isBusinessManager, visibleLaunches],
+  );
+  const managerExpiredLaunches = useMemo(
+    () =>
+      isBusinessManager
+        ? visibleLaunches
+            .filter((launch) => launch.state === timedOut)
+            .filter(
+              (launch) =>
+                !visibleLaunches.some(
+                  (other) =>
+                    other.assetId === launch.assetId &&
+                    other.createdAt > launch.createdAt,
+                ),
+            )
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        : [],
+    [isBusinessManager, visibleLaunches],
+  );
+  const managerShieldQueue = useMemo(
+    () =>
+      isBusinessManager
+        ? shields
+            .filter(
+              (shield) =>
+                visibleAssetIds.has(shield.assetId) &&
+                shieldsInProgress.has(shield.state),
+            )
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        : [],
+    [isBusinessManager, shields, visibleAssetIds],
   );
   const pendingLaunches = useMemo(
     () =>
-      ownerLaunches
+      (isBusinessOwner ? visibleLaunches : [])
         .filter((launch) => launch.state === waitingForAnswers)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [ownerLaunches],
+    [isBusinessOwner, visibleLaunches],
+  );
+  const ownerLaunchesInReview = useMemo(
+    () =>
+      isBusinessOwner
+        ? visibleLaunches.filter((launch) =>
+            launchesInReview.has(launch.state),
+          )
+        : [],
+    [isBusinessOwner, visibleLaunches],
+  );
+  const ownerOptions = useMemo(
+    () =>
+      workers.filter((worker) =>
+        assets.some((asset) => asset.businessOwner === worker.id),
+      ),
+    [assets, workers],
   );
   const managerOptions = useMemo(() => {
-    const managerIds = new Set(
-      assets.map((asset) => asset.businessManager).filter(Boolean),
+    return workers.filter((worker) =>
+      assets.some((asset) => asset.businessManager === worker.id),
     );
-    const managers = workers.filter((worker) => managerIds.has(worker.id));
-    return managers.length > 0
-      ? managers
-      : workers.filter((worker) => worker.id !== ownerId);
-  }, [assets, ownerId, workers]);
-  const owner = ownerOptions.find((worker) => worker.id === ownerId);
+  }, [assets, workers]);
+  const owner = activeActor?.worker;
   const tierById = useMemo(
     () => new Map(tiers.map((tier) => [tier.id, tier])),
     [tiers],
   );
+  const filteredAssets = useMemo(() => {
+    const query = assetSearch.trim().toLowerCase();
+    if (!query) return visibleAssets;
+    return visibleAssets.filter((asset) => {
+      const tier = asset.tierId ? tierById.get(asset.tierId) : undefined;
+      const status = assetStateLabel(
+        assetDisplayState(asset, visibleLaunches, isBusinessOwner),
+      );
+      return [
+        asset.name,
+        asset.id,
+        asset.campus,
+        asset.building,
+        asset.section,
+        asset.level,
+        asset.wing,
+        asset.floor,
+        asset.space,
+        asset.priority,
+        locationLabel(asset),
+        tier?.name,
+        tier?.title,
+        status,
+      ]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLowerCase().includes(query));
+    });
+  }, [assetSearch, isBusinessOwner, tierById, visibleAssets, visibleLaunches]);
 
   async function loadAsset(asset: Asset) {
     setSelectedAsset(asset);
@@ -187,12 +450,18 @@ function App() {
     setDetailLoading(true);
     setNotice(null);
     try {
-      const [history, baselines] = await Promise.all([
+      const [history, shields, baselines] = await Promise.all([
         get<Launch[]>(`/assets/${encodeURIComponent(asset.id)}/launches`),
+        get<Shield[]>(`/assets/${encodeURIComponent(asset.id)}/shields`),
         get<Baseline[]>(`/assets/${encodeURIComponent(asset.id)}/baselines`),
       ]);
       setAssetLaunches(
-        (history ?? []).sort((a, b) =>
+        mergeLaunchStates(history ?? [], launches).sort((a, b) =>
+          b.createdAt.localeCompare(a.createdAt),
+        ),
+      );
+      setAssetShields(
+        (shields ?? []).sort((a, b) =>
           b.createdAt.localeCompare(a.createdAt),
         ),
       );
@@ -200,14 +469,16 @@ function App() {
     } catch (error) {
       setNotice({ kind: "error", text: errorText(error) });
       setAssetLaunches([]);
+      setAssetShields([]);
       setAssetBaselines([]);
     } finally {
       setDetailLoading(false);
     }
   }
 
-  async function loadLaunch(launch: Launch) {
+  async function loadLaunch(launch: Launch, readOnly = false) {
     setActiveLaunch(null);
+    setActiveShield(null);
     setLaunchLoading(true);
     setLaunchError("");
     setNotice(null);
@@ -237,16 +508,91 @@ function App() {
         );
       }
       setActiveLaunch(launch);
+      setTierOverride("");
+      setAssessmentType("launch");
+      setAssessmentReadOnly(readOnly);
+      setEvidenceByQuestion({});
       setCategories(orderedCategories);
       setQuestions(orderedQuestions);
       setPredefinedAnswers(orderedAnswers);
       setLaunchAnswers(initial);
       setSavedAnswers(initial);
       setCategoryIndex(0);
-      setView("launch");
+      setView("assessment");
     } catch (error) {
       setLaunchError(errorText(error));
-      setView("launch");
+      setView("assessment");
+    } finally {
+      setLaunchLoading(false);
+    }
+  }
+
+  async function loadShield(shield: Shield, readOnly = true) {
+    setActiveLaunch(null);
+    setActiveShield(null);
+    setLaunchLoading(true);
+    setLaunchError("");
+    setNotice(null);
+    try {
+      const [categoryRows, questionRows, answerRows, savedRows, evidenceRows] =
+        await Promise.all([
+          get<QuestionCategory[]>("/question-categories?type=shield"),
+          get<Question[]>("/questions?categoryType=shield"),
+          get<PredefinedAnswer[]>("/predefined-answers?type=shield"),
+          get<UserAnswerDetail[]>(
+            `/shields/${encodeURIComponent(shield.id)}/answers`,
+          ),
+          get<Evidence[]>(
+            `/shields/${encodeURIComponent(shield.id)}/evidences`,
+          ),
+        ]);
+      const orderedCategories = (categoryRows ?? []).sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt),
+      );
+      const orderedQuestions = (questionRows ?? []).sort(
+        (a, b) => a.displayOrder - b.displayOrder || a.id.localeCompare(b.id),
+      );
+      const orderedAnswers = (answerRows ?? []).sort(
+        (a, b) => a.displayOrder - b.displayOrder || a.id.localeCompare(b.id),
+      );
+      const initial: Record<string, string[]> = {};
+      for (const answer of savedRows ?? []) {
+        initial[answer.questionId] = answer.selections.map(
+          (selection) => selection.predefinedAnswerId,
+        );
+      }
+      const evidencesByQuestion: Record<string, Evidence[]> = {};
+      const evidenceDraftsByQuestion: Record<
+        string,
+        { description: string; url: string }
+      > = {};
+      for (const evidence of evidenceRows ?? []) {
+        evidencesByQuestion[evidence.questionId] ??= [];
+        evidencesByQuestion[evidence.questionId].push(evidence);
+        evidenceDraftsByQuestion[evidence.questionId] = {
+          description: evidence.description,
+          url: evidence.url,
+        };
+      }
+      setActiveShield(shield);
+      setAssessmentType("shield");
+      setAssessmentReadOnly(
+        readOnly ||
+          !isBusinessManager ||
+          !["waiting-4-answers", "waiting-4-evidences"].includes(shield.state),
+      );
+      setCategories(orderedCategories);
+      setQuestions(orderedQuestions);
+      setPredefinedAnswers(orderedAnswers);
+      setLaunchAnswers(initial);
+      setSavedAnswers(initial);
+      setEvidenceByQuestion(evidencesByQuestion);
+      setEvidenceDrafts(evidenceDraftsByQuestion);
+      setCategoryIndex(0);
+      setView("assessment");
+    } catch (error) {
+      setLaunchError(errorText(error));
+      setView("assessment");
     } finally {
       setLaunchLoading(false);
     }
@@ -305,6 +651,206 @@ function App() {
     }
   }
 
+  async function openManagerReview(launch: Launch) {
+    const asset = assets.find((row) => row.id === launch.assetId);
+    if (!asset) {
+      setNotice({
+        kind: "error",
+        text: "The asset for this LAUNCH could not be found.",
+      });
+      return;
+    }
+    await loadAsset(asset);
+    await loadLaunch(launch, true);
+  }
+
+  async function beginShield(asset: Asset) {
+    const previousShieldId = shields
+      .filter((shield) => shield.assetId === asset.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id;
+    setNotice({ kind: "info", text: "Starting a SHIELD assessment…" });
+    try {
+      await post("/shields", { assetId: asset.id });
+      const deadline = Date.now() + 8000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 400));
+        const history = await get<Shield[]>(
+          `/assets/${encodeURIComponent(asset.id)}/shields`,
+        );
+        const createdShield = (history ?? [])
+          .filter((shield) => shield.id !== previousShieldId)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+        if (createdShield) {
+          await refreshDashboard();
+          await loadAsset(asset);
+          await loadShield(createdShield, false);
+          setNotice({
+            kind: "success",
+            text: "SHIELD is ready. Record the observed exposure and supporting evidence.",
+          });
+          return;
+        }
+      }
+      await refreshDashboard();
+      setNotice({
+        kind: "info",
+        text: "The SHIELD request was accepted. It will appear when the workflow worker creates it.",
+      });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: `SHIELD could not be started: ${errorText(error)}`,
+      });
+    }
+  }
+
+  async function validateLaunchTier() {
+    if (!activeLaunch || !isBusinessManager) return;
+    setLaunchSaving(true);
+    setLaunchError("");
+    try {
+      await post(
+        `/launches/${encodeURIComponent(activeLaunch.id)}/validate-tier`,
+        { tierId: tierOverride },
+      );
+      const validated = {
+        ...activeLaunch,
+        state: "tier-validated",
+        ...(tierOverride ? { tierId: tierOverride } : {}),
+      };
+      setLaunches((current) =>
+        current.map((launch) =>
+          launch.id === activeLaunch.id ? validated : launch,
+        ),
+      );
+      setAssetLaunches((current) =>
+        current.map((launch) =>
+          launch.id === activeLaunch.id ? validated : launch,
+        ),
+      );
+      setActiveLaunch(null);
+      setView("dashboard");
+      setNotice({
+        kind: "success",
+        text: "LAUNCH tier validated. The assessment is now in the asset record.",
+      });
+    } catch (error) {
+      setLaunchError(errorText(error));
+    } finally {
+      setLaunchSaving(false);
+    }
+  }
+
+  async function saveShieldAnswers(finalize = false) {
+    if (!activeShield || !isBusinessManager || assessmentReadOnly) return;
+    const unanswered = questions.filter(
+      (question) => (launchAnswers[question.id] ?? []).length === 0,
+    ).length;
+    if (finalize && unanswered > 0) {
+      setLaunchError(
+        `Answer all ${questions.length} SHIELD questions before continuing. ${unanswered} remain unanswered.`,
+      );
+      return;
+    }
+    const submissions = questions
+      .filter((question) => (launchAnswers[question.id] ?? []).length > 0)
+      .map((question) => ({
+        questionId: question.id,
+        predefinedAnswerIds: launchAnswers[question.id],
+      }));
+    setShieldSaving(true);
+    setLaunchError("");
+    try {
+      await post(
+        `/shields/${encodeURIComponent(activeShield.id)}/${
+          finalize ? "finalize-answers" : "submit-answers"
+        }`,
+        { answers: submissions },
+      );
+      setSavedAnswers(launchAnswers);
+      if (finalize) {
+        setActiveShield((current) =>
+          current ? { ...current, state: "waiting-4-evidences" } : current,
+        );
+        setNotice({
+          kind: "success",
+          text: "SHIELD answers saved. Add evidence for each required question.",
+        });
+      } else {
+        setNotice({ kind: "success", text: "SHIELD answers saved." });
+      }
+    } catch (error) {
+      setLaunchError(errorText(error));
+    } finally {
+      setShieldSaving(false);
+    }
+  }
+
+  async function saveShieldEvidences(finalize = false) {
+    if (!activeShield || !isBusinessManager || assessmentReadOnly) return;
+    const evidences = questions
+      .map((question) => ({
+        questionId: question.id,
+        description: evidenceDrafts[question.id]?.description.trim() ?? "",
+        url: evidenceDrafts[question.id]?.url.trim() ?? "",
+      }))
+      .filter((evidence) => evidence.description || evidence.url);
+    const hasInvalidEvidenceUrl = evidences.some(
+      (evidence) => evidence.url && !safeEvidenceHref(evidence.url),
+    );
+    if (hasInvalidEvidenceUrl) {
+      setLaunchError("Evidence links must be valid HTTP or HTTPS URLs.");
+      return;
+    }
+    const missingEvidence = questions.filter(
+      (question) =>
+        question.evidenceRequired &&
+        !evidenceDrafts[question.id]?.description.trim() &&
+        !evidenceDrafts[question.id]?.url.trim(),
+    ).length;
+    if (finalize && missingEvidence > 0) {
+      setLaunchError(
+        `Add evidence for each required question. ${missingEvidence} still need evidence.`,
+      );
+      return;
+    }
+    setShieldSaving(true);
+    setLaunchError("");
+    try {
+      await post(
+        `/shields/${encodeURIComponent(activeShield.id)}/${
+          finalize ? "finalize-evidences" : "submit-evidences"
+        }`,
+        { evidences },
+      );
+      if (finalize) {
+        const submitted = { ...activeShield, state: "evidences-submitted" };
+        setActiveShield(submitted);
+        setShields((current) =>
+          current.map((shield) =>
+            shield.id === submitted.id ? submitted : shield,
+          ),
+        );
+        setAssetShields((current) =>
+          current.map((shield) =>
+            shield.id === submitted.id ? submitted : shield,
+          ),
+        );
+        setAssessmentReadOnly(true);
+        setNotice({
+          kind: "success",
+          text: "SHIELD evidence submitted. The assessment is being finalized.",
+        });
+      } else {
+        setNotice({ kind: "success", text: "SHIELD evidence saved." });
+      }
+    } catch (error) {
+      setLaunchError(errorText(error));
+    } finally {
+      setShieldSaving(false);
+    }
+  }
+
   async function createAssetRequest(request: AssetRequest) {
     const created = await post<Asset>("/assets", request);
     setShowRequestDialog(false);
@@ -337,7 +883,7 @@ function App() {
   }
 
   async function saveLaunch(finalize = false) {
-    if (!activeLaunch) return;
+    if (!activeLaunch || assessmentReadOnly) return;
     const unanswered = questions.filter(
       (question) => (launchAnswers[question.id] ?? []).length === 0,
     ).length;
@@ -367,6 +913,13 @@ function App() {
         { answers: submissions },
       );
       if (finalize) {
+        setLaunches((current) =>
+          current.map((launch) =>
+            launch.id === activeLaunch.id
+              ? { ...launch, state: "answers-submitted" }
+              : launch,
+          ),
+        );
         setNotice({
           kind: "success",
           text: "LAUNCH submitted. Your business manager or security assessor will review it.",
@@ -389,6 +942,14 @@ function App() {
     setView("dashboard");
     setSelectedAsset(null);
     setActiveLaunch(null);
+    setActiveShield(null);
+    setNotice(null);
+  }
+
+  function backToAssetDetails() {
+    setView("asset");
+    setActiveLaunch(null);
+    setActiveShield(null);
     setNotice(null);
   }
 
@@ -399,9 +960,20 @@ function App() {
   const unansweredCount = questions.filter(
     (question) => (launchAnswers[question.id] ?? []).length === 0,
   ).length;
+  const latestAssetLaunch = assetLaunches[0];
+  const assetDetailState =
+    latestAssetLaunch &&
+    (latestAssetLaunch.state === waitingForAnswers ||
+      launchesInReview.has(latestAssetLaunch.state))
+      ? latestAssetLaunch.state
+      : selectedAsset?.state;
+  const managerCanValidate =
+    isBusinessManager &&
+    activeLaunch !== null &&
+    activeLaunch.state === waitingForTierApproval;
 
   useEffect(() => {
-    if (view !== "launch" || categories.length < 2) return;
+    if (view !== "assessment" || categories.length < 2) return;
     function onKeyDown(event: KeyboardEvent) {
       if (!event.altKey || !["ArrowLeft", "ArrowRight"].includes(event.key)) {
         return;
@@ -433,14 +1005,28 @@ function App() {
           <label className="owner-picker">
             <span>Viewing as</span>
             <select
-              aria-label="Select demo business owner"
-              value={ownerId}
-              onChange={(event) => setOwnerId(event.target.value)}
-              disabled={ownerOptions.length === 0}
+              aria-label="Select demo user and role"
+              value={actorKey}
+              onChange={(event) => {
+                const nextActor = demoActors.find(
+                  (actor) => actor.key === event.target.value,
+                );
+                setActorKey(event.target.value);
+                navigate(
+                  nextActor?.role === "Business manager"
+                    ? "/business-manager"
+                    : "/business-owner",
+                );
+                setView("dashboard");
+                setSelectedAsset(null);
+                setActiveLaunch(null);
+                setActiveShield(null);
+              }}
+              disabled={demoActors.length === 0}
             >
-              {ownerOptions.map((worker) => (
-                <option key={worker.id} value={worker.id}>
-                  {worker.name}
+              {demoActors.map((actor) => (
+                <option key={actor.key} value={actor.key}>
+                  {actor.worker.name} · {actor.role}
                 </option>
               ))}
             </select>
@@ -482,7 +1068,10 @@ function App() {
                 Make sure the backend API is running on localhost:8080.
               </p>
             </div>
-            <button className="button button-secondary" onClick={refreshDashboard}>
+            <button
+              className="button button-secondary"
+              onClick={() => void refreshDashboard()}
+            >
               Try again
             </button>
           </div>
@@ -498,39 +1087,78 @@ function App() {
           <section aria-labelledby="dashboard-title">
             <div className="page-heading heading-row">
               <div>
-                <div className="eyebrow">BUSINESS OWNER PORTAL</div>
-                <h1 id="dashboard-title">Good to see you, {owner?.name ?? "Owner"}</h1>
+                <div className="eyebrow">
+                  {isBusinessOwner ? "BUSINESS OWNER PORTAL" : "BUSINESS MANAGER PORTAL"}
+                </div>
+                <h1 id="dashboard-title">
+                  Good to see you, {owner?.name ?? "User"}
+                </h1>
                 <p>
-                  Manage your secure spaces and keep their business assessments
-                  up to date.
+                  {isBusinessOwner
+                    ? "Manage your secure spaces and keep their business assessments up to date."
+                    : "Validate submitted LAUNCH assessments and assess observable SHIELD exposure for assigned assets."}
                 </p>
               </div>
-              <button
-                className="button button-primary"
-                onClick={() => setShowRequestDialog(true)}
-                disabled={workers.length === 0}
-              >
-                <span className="button-plus">＋</span> Request a new asset
-              </button>
+              {isBusinessOwner && (
+                <button
+                  className="button button-primary"
+                  onClick={() => setShowRequestDialog(true)}
+                  disabled={workers.length === 0}
+                >
+                  <span className="button-plus">＋</span> Request a new asset
+                </button>
+              )}
             </div>
 
             <div className="metric-grid">
               <Metric
-                label="Assets you own"
-                value={ownerAssets.length}
-                caption="Secure rooms and areas"
+                label={isBusinessOwner ? "Assets you own" : "Assets you manage"}
+                value={visibleAssets.length}
+                caption={
+                  isBusinessOwner
+                    ? "Secure rooms and areas"
+                    : "Assigned secure rooms and areas"
+                }
                 accent="blue"
               />
               <Metric
-                label="LAUNCH actions"
-                value={pendingLaunches.length}
-                caption="Waiting for your input"
-                accent={pendingLaunches.length > 0 ? "amber" : "green"}
+                label={isBusinessOwner ? "LAUNCH actions" : "LAUNCH reviews"}
+                value={
+                  isBusinessOwner
+                    ? pendingLaunches.length
+                    : managerReviewQueue.length
+                }
+                caption={
+                  isBusinessOwner
+                    ? pendingLaunches.length > 0
+                      ? "Waiting for your input"
+                      : ownerLaunchesInReview.length > 0
+                        ? `${ownerLaunchesInReview.length} submitted for review`
+                        : "No owner action needed"
+                    : managerReviewQueue.length > 0
+                      ? "Awaiting tier validation"
+                      : "No LAUNCH reviews waiting"
+                }
+                accent={
+                  (isBusinessOwner
+                    ? pendingLaunches.length
+                    : managerReviewQueue.length) > 0
+                    ? "amber"
+                    : "green"
+                }
               />
               <Metric
-                label="Tiered assets"
-                value={ownerAssets.filter((asset) => asset.tierId).length}
-                caption="Validated by security"
+                label={isBusinessManager ? "SHIELD in progress" : "Tiered assets"}
+                value={
+                  isBusinessManager
+                    ? managerShieldQueue.length
+                    : visibleAssets.filter((asset) => asset.tierId).length
+                }
+                caption={
+                  isBusinessManager
+                    ? "Continue exposure assessments"
+                    : "Validated by security"
+                }
                 accent="navy"
               />
             </div>
@@ -540,15 +1168,141 @@ function App() {
                 <div className="panel-heading">
                   <div>
                     <div className="eyebrow">YOUR NEXT STEP</div>
-                    <h2 id="work-title">LAUNCH tasks</h2>
+                    <h2 id="work-title">
+                      {isBusinessOwner ? "LAUNCH tasks" : "Manager work queue"}
+                    </h2>
                   </div>
-                  <span className="count-badge">{pendingLaunches.length}</span>
+                  <span className="count-badge">
+                    {isBusinessOwner
+                      ? pendingLaunches.length
+                      : managerReviewQueue.length +
+                        managerShieldQueue.length +
+                        managerExpiredLaunches.length}
+                  </span>
                 </div>
-                {pendingLaunches.length === 0 ? (
+                {isBusinessManager ? (
+                  managerReviewQueue.length === 0 &&
+                  managerShieldQueue.length === 0 &&
+                  managerExpiredLaunches.length === 0 ? (
+                    <div className="empty-state compact-empty">
+                      <span className="empty-icon">✓</span>
+                      <strong>You’re all caught up</strong>
+                      <span>
+                        Submitted LAUNCH assessments and active SHIELD work will
+                        appear here.
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="task-list">
+                      {managerReviewQueue.map((launch) => {
+                        const asset = assets.find(
+                          (row) => row.id === launch.assetId,
+                        );
+                        return (
+                          <article className="task-card" key={launch.id}>
+                            <div className="task-icon" aria-hidden="true">L</div>
+                            <div className="task-copy">
+                              <strong>{asset?.name ?? launch.assetId}</strong>
+                              <span>
+                                {asset
+                                  ? locationLabel(asset)
+                                  : "Asset details loading"}
+                              </span>
+                              <small>
+                                Submitted {formatDate(launch.updatedAt)}
+                              </small>
+                            </div>
+                            <button
+                              className="button button-small button-primary"
+                              onClick={() => void openManagerReview(launch)}
+                            >
+                              Review LAUNCH <span aria-hidden="true">→</span>
+                            </button>
+                          </article>
+                        );
+                      })}
+                      {managerShieldQueue.map((shield) => {
+                        const asset = assets.find(
+                          (row) => row.id === shield.assetId,
+                        );
+                        return (
+                          <article className="task-card" key={shield.id}>
+                            <div className="task-icon shield-task-icon" aria-hidden="true">S</div>
+                            <div className="task-copy">
+                              <strong>{asset?.name ?? shield.assetId}</strong>
+                              <span>
+                                {asset
+                                  ? locationLabel(asset)
+                                  : "Asset details loading"}
+                              </span>
+                              <small>
+                                SHIELD · {shieldStateLabel(shield.state)}
+                              </small>
+                            </div>
+                            <button
+                              className="button button-small button-primary"
+                              onClick={() => {
+                                if (asset) {
+                                  void loadAsset(asset).then(() =>
+                                    loadShield(shield, false),
+                                  );
+                                }
+                              }}
+                              disabled={!asset}
+                            >
+                              Continue SHIELD <span aria-hidden="true">→</span>
+                            </button>
+                          </article>
+                        );
+                      })}
+                      {managerExpiredLaunches.map((launch) => {
+                        const asset = assets.find(
+                          (row) => row.id === launch.assetId,
+                        );
+                        return (
+                          <article className="task-card expired-task-card" key={launch.id}>
+                            <div className="task-icon expired-task-icon" aria-hidden="true">!</div>
+                            <div className="task-copy">
+                              <strong>{asset?.name ?? launch.assetId}</strong>
+                              <span>
+                                {asset
+                                  ? locationLabel(asset)
+                                  : "Asset details loading"}
+                              </span>
+                              <small>
+                                LAUNCH timed out · Ask the owner to request a
+                                reassessment
+                              </small>
+                            </div>
+                            <button
+                              className="button button-small button-secondary"
+                              onClick={() => void openManagerReview(launch)}
+                              disabled={!asset}
+                            >
+                              View record <span aria-hidden="true">→</span>
+                            </button>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )
+                ) : pendingLaunches.length === 0 ? (
                   <div className="empty-state compact-empty">
                     <span className="empty-icon">✓</span>
-                    <strong>You’re all caught up</strong>
-                    <span>No LAUNCH questionnaires need your input.</span>
+                    <strong>
+                      {ownerLaunchesInReview.length > 0
+                        ? "Your LAUNCH is in review"
+                        : isBusinessOwner
+                          ? "You’re all caught up"
+                          : "No assessments awaiting your review"}
+                    </strong>
+                    <span>
+                      {ownerLaunchesInReview.length > 0
+                        ? "Your business manager or security assessor will review your submitted answers."
+                        : isBusinessOwner
+                          ? "No LAUNCH questionnaires need your input."
+                          : "You can open an asset to view its LAUNCH and SHIELD history."}
+                    </span>
                   </div>
                 ) : (
                   <div className="task-list">
@@ -588,16 +1342,23 @@ function App() {
                 <div className="principle-symbol" aria-hidden="true">
                   i
                 </div>
-                <div className="eyebrow">A QUICK REMINDER</div>
-                <h2>LAUNCH is about business impact</h2>
+                <div className="eyebrow">
+                  {isBusinessManager ? "MANAGER RESPONSIBILITIES" : "A QUICK REMINDER"}
+                </div>
+                <h2>
+                  {isBusinessManager
+                    ? "Validate business impact, then assess exposure"
+                    : "LAUNCH is about business impact"}
+                </h2>
                 <p>
-                  Describe what the room supports and what would happen if it
-                  were unavailable. Security will validate your answers and
-                  confirm the tier.
+                  {isBusinessManager
+                    ? "Check submitted answers against the available evidence. Confirm or override the tier, then record SHIELD conditions with evidence."
+                    : "Describe what the room supports and what would happen if it were unavailable. Security will validate your answers and confirm the tier."}
                 </p>
                 <div className="principle-rule">
-                  You won’t be asked to choose cameras, alarms, or other
-                  security controls.
+                  {isBusinessManager
+                    ? "SHIELD documents observable exposure. It does not change the validated tier."
+                    : "You won’t be asked to choose cameras, alarms, or other security controls."}
                 </div>
               </aside>
             </div>
@@ -606,100 +1367,215 @@ function App() {
               <div className="section-heading">
                 <div>
                   <div className="eyebrow">YOUR PORTFOLIO</div>
-                  <h2 id="assets-title">Assets you own</h2>
+                  <h2 id="assets-title">
+                    {isBusinessOwner ? "Assets you own" : "Assets you manage"}
+                  </h2>
                 </div>
-                <span className="muted">{ownerAssets.length} total</span>
               </div>
-              {ownerAssets.length === 0 ? (
+              {visibleAssets.length === 0 ? (
                 <div className="panel empty-assets">
                   <div className="empty-icon">⌂</div>
-                  <h3>No assets assigned yet</h3>
+                  <h3>
+                    {isBusinessOwner
+                      ? "No assets assigned yet"
+                      : "No assets assigned to you"}
+                  </h3>
                   <p>
-                    Request a new secure room or area to begin its LAUNCH
-                    assessment.
+                    {isBusinessOwner
+                      ? "Request a new secure room or area to begin its LAUNCH assessment."
+                      : "Assets assigned to you as business manager will appear here."}
                   </p>
-                  <button
-                    className="button button-primary"
-                    onClick={() => setShowRequestDialog(true)}
-                  >
-                    Request an asset
-                  </button>
+                  {isBusinessOwner && (
+                    <button
+                      className="button button-primary"
+                      onClick={() => setShowRequestDialog(true)}
+                    >
+                      Request an asset
+                    </button>
+                  )}
                 </div>
               ) : (
-                <div className="asset-grid">
-                  {ownerAssets.map((asset) => {
-                    const active = ownerLaunches.find(
+                <>
+                  <div className="asset-toolbar">
+                    <label className="asset-search">
+                      <span>Search assets</span>
+                      <input
+                        type="search"
+                        value={assetSearch}
+                        onChange={(event) => setAssetSearch(event.target.value)}
+                        placeholder="Name, location, tier, or status"
+                      />
+                    </label>
+                    <span className="muted" aria-live="polite">
+                      Showing {filteredAssets.length} of {visibleAssets.length}{" "}
+                      {visibleAssets.length === 1 ? "asset" : "assets"}
+                    </span>
+                  </div>
+                  {filteredAssets.length === 0 ? (
+                    <div className="panel asset-search-empty">
+                      <strong>No matching assets</strong>
+                      <span>Try a different name, location, tier, or status.</span>
+                    </div>
+                  ) : (
+                    <div className="asset-table-wrap">
+                      <table
+                        className="asset-table"
+                        aria-label="Assets assigned to your selected role"
+                      >
+                        <thead>
+                          <tr>
+                            <th scope="col">Asset</th>
+                            <th scope="col">Location</th>
+                            <th scope="col">Tier</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                  {filteredAssets.map((asset) => {
+                    const assetLaunchesForCurrent = visibleLaunches.filter(
+                      (launch) => launch.assetId === asset.id,
+                    );
+                    const active = isBusinessOwner
+                      ? assetLaunchesForCurrent.find(
                       (launch) =>
-                        launch.assetId === asset.id &&
                         launch.state === waitingForAnswers,
+                      )
+                      : undefined;
+                    const latestLaunch = assetLaunchesForCurrent
+                      .sort((a, b) =>
+                        b.createdAt.localeCompare(a.createdAt),
+                      )[0];
+                    const activeShield = isBusinessManager
+                      ? shields
+                          .filter(
+                            (shield) =>
+                              shield.assetId === asset.id &&
+                              shieldsInProgress.has(shield.state),
+                          )
+                          .sort((a, b) =>
+                            b.createdAt.localeCompare(a.createdAt),
+                          )[0]
+                      : undefined;
+                    const awaitingReview =
+                      latestLaunch && launchesInReview.has(latestLaunch.state);
+                    const displayState = assetDisplayState(
+                      asset,
+                      visibleLaunches,
+                      isBusinessOwner,
                     );
                     const tier = asset.tierId
                       ? tierById.get(asset.tierId)
                       : undefined;
                     return (
-                      <article className="asset-card" key={asset.id}>
-                        <button
-                          className="asset-card-main"
-                          onClick={() => void loadAsset(asset)}
-                          aria-label={`View ${asset.name} details`}
-                        >
-                          <div className="asset-card-top">
-                            <span className="asset-type-icon" aria-hidden="true">
-                              <span />
-                            </span>
-                            <span
-                              className={`state-pill state-${asset.state}`}
+                      <tr key={asset.id}>
+                        <th scope="row">
+                          <button
+                            className="asset-table-name"
+                            onClick={() => void loadAsset(asset)}
+                          >
+                            {asset.name}
+                          </button>
+                          <span className="asset-table-id">{asset.id}</span>
+                        </th>
+                        <td>{locationLabel(asset) || "—"}</td>
+                        <td>
+                          {tier ? (
+                            <>
+                              <span className="tier-dot" />
+                              {tier.name} · {tier.title}
+                            </>
+                          ) : (
+                            <span className="muted">Tier not assigned</span>
+                          )}
+                        </td>
+                        <td>
+                          <span
+                            className={`state-pill state-${displayState}`}
+                          >
+                            {assetStateLabel(displayState)}
+                          </span>
+                        </td>
+                        <td>
+                          {active ? (
+                            <button
+                              className="asset-table-action"
+                              onClick={() => void loadLaunch(active)}
                             >
-                              {assetStateLabel(asset.state)}
-                            </span>
-                          </div>
-                          <h3>{asset.name}</h3>
-                          <p className="asset-location">{locationLabel(asset)}</p>
-                          <div className="asset-card-bottom">
-                            <span>
-                              {tier ? (
-                                <>
-                                  <span className="tier-dot" />
-                                  {tier.name} · {tier.title}
-                                </>
-                              ) : (
-                                <span className="muted">Tier not assigned</span>
-                              )}
-                            </span>
-                            <span className="asset-open" aria-hidden="true">
-                              →
-                            </span>
-                          </div>
-                        </button>
-                        {active ? (
-                          <button
-                            className="asset-action"
-                            onClick={() => void loadLaunch(active)}
-                          >
-                            Continue LAUNCH <span aria-hidden="true">→</span>
-                          </button>
-                        ) : (
-                          <button
-                            className="asset-action"
-                            onClick={() => void beginLaunch(asset)}
-                          >
-                            {!asset.lastLaunchId &&
-                            asset.state === "pending-launch"
-                              ? "Start LAUNCH"
-                              : "Request reassessment"}{" "}
-                            <span aria-hidden="true">→</span>
-                          </button>
-                        )}
-                      </article>
+                              Continue LAUNCH <span aria-hidden="true">→</span>
+                            </button>
+                          ) : isBusinessManager && activeShield ? (
+                            <button
+                              className="asset-table-action"
+                              onClick={() => {
+                                void loadAsset(asset).then(() =>
+                                  loadShield(activeShield, false),
+                                );
+                              }}
+                            >
+                              Continue SHIELD <span aria-hidden="true">→</span>
+                            </button>
+                          ) : isBusinessManager ? (
+                            latestLaunch?.state === "tier-validated" ||
+                            asset.state === "pending-shield" ||
+                            asset.state === "shielded" ? (
+                              <button
+                                className="asset-table-action"
+                                onClick={() => void beginShield(asset)}
+                              >
+                                Start SHIELD <span aria-hidden="true">→</span>
+                              </button>
+                            ) : latestLaunch?.state === waitingForTierApproval ? (
+                              <button
+                                className="asset-table-action"
+                                onClick={() => void openManagerReview(latestLaunch)}
+                              >
+                                Review LAUNCH <span aria-hidden="true">→</span>
+                              </button>
+                            ) : (
+                              <button
+                                className="asset-table-action"
+                                onClick={() => void loadAsset(asset)}
+                              >
+                                View history <span aria-hidden="true">→</span>
+                              </button>
+                            )
+                          ) : !isBusinessOwner ? (
+                            <button
+                              className="asset-table-action"
+                              onClick={() => void loadAsset(asset)}
+                            >
+                              View history <span aria-hidden="true">→</span>
+                            </button>
+                          ) : awaitingReview ? (
+                            <span className="asset-table-note">In review</span>
+                          ) : (
+                            <button
+                              className="asset-table-action"
+                              onClick={() => void beginLaunch(asset)}
+                            >
+                              {latestLaunch ? "Request reassessment" : "Start LAUNCH"}{" "}
+                              <span aria-hidden="true">→</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
                     );
                   })}
-                </div>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </section>
 
             <footer className="page-footer">
               <span>PSAP · Secure room and area assessment</span>
-              <button className="text-button" onClick={refreshDashboard}>
+              <button
+                className="text-button"
+                onClick={() => void refreshDashboard()}
+              >
                 Refresh data
               </button>
             </footer>
@@ -718,33 +1594,56 @@ function App() {
                 <p>{locationLabel(selectedAsset)}</p>
               </div>
               <div className="detail-actions">
-                {assetLaunches.find(
-                  (launch) => launch.state === waitingForAnswers,
-                ) ? (
+                {isBusinessOwner &&
+                latestAssetLaunch?.state === waitingForAnswers ? (
                   <button
                     className="button button-primary"
-                    onClick={() =>
-                      void loadLaunch(
-                        assetLaunches.find(
-                          (launch) => launch.state === waitingForAnswers,
-                        )!,
-                      )
-                    }
+                    onClick={() => void loadLaunch(latestAssetLaunch)}
                   >
                     Continue LAUNCH
                   </button>
-                ) : (
+                ) : latestAssetLaunch &&
+                  launchesInReview.has(latestAssetLaunch.state) ? (
+                  <button className="button button-secondary" disabled>
+                    Awaiting review
+                  </button>
+                ) : isBusinessOwner ? (
                   <button
                     className="button button-primary"
                     onClick={() => void beginLaunch(selectedAsset)}
                   >
-                    {assetLaunches.length === 0 &&
-                    !selectedAsset.lastLaunchId &&
-                    selectedAsset.state === "pending-launch"
+                    {assetLaunches.length === 0
                       ? "Start LAUNCH"
                       : "Request reassessment"}
                   </button>
-                )}
+                ) : isBusinessManager ? (
+                  (() => {
+                    const activeShield = assetShields.find((shield) =>
+                      shieldsInProgress.has(shield.state),
+                    );
+                    const canStartShield =
+                      latestAssetLaunch?.state === "tier-validated" ||
+                      selectedAsset.state === "pending-shield" ||
+                      selectedAsset.state === "shielded";
+                    return activeShield ? (
+                      <button
+                        className="button button-primary"
+                        onClick={() =>
+                          void loadShield(activeShield, false)
+                        }
+                      >
+                        Continue SHIELD
+                      </button>
+                    ) : canStartShield ? (
+                      <button
+                        className="button button-primary"
+                        onClick={() => void beginShield(selectedAsset)}
+                      >
+                        Start SHIELD
+                      </button>
+                    ) : null;
+                  })()
+                ) : null}
               </div>
             </div>
 
@@ -758,9 +1657,9 @@ function App() {
                   <div className="panel detail-summary">
                     <div className="eyebrow">CURRENT STATUS</div>
                     <span
-                      className={`state-pill state-${selectedAsset.state}`}
+                      className={`state-pill state-${assetDetailState}`}
                     >
-                      {assetStateLabel(selectedAsset.state)}
+                      {assetStateLabel(assetDetailState ?? selectedAsset.state)}
                     </span>
                     <h2>
                       {selectedAsset.tierId
@@ -830,14 +1729,82 @@ function App() {
                                 "Tier review"
                               : "Tier pending"}
                           </span>
-                          {launch.state === waitingForAnswers && (
+                          {launch.state === waitingForAnswers &&
+                          isBusinessOwner ? (
                             <button
                               className="text-button"
                               onClick={() => void loadLaunch(launch)}
                             >
-                              Open LAUNCH
+                              Continue
+                            </button>
+                          ) : (
+                            <button
+                              className="text-button"
+                              onClick={() =>
+                                void loadLaunch(
+                                  launch,
+                                  launch.state !== waitingForAnswers ||
+                                    !isBusinessOwner,
+                                )
+                              }
+                            >
+                              View answers
                             </button>
                           )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="panel history-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <div className="eyebrow">EXPOSURE RECORD</div>
+                      <h2>SHIELD history</h2>
+                    </div>
+                    <span className="muted">
+                      {assetShields.length}{" "}
+                      {assetShields.length === 1 ? "assessment" : "assessments"}
+                    </span>
+                  </div>
+                  {assetShields.length === 0 ? (
+                    <p className="muted">
+                      No SHIELD assessments have been started for this asset.
+                    </p>
+                  ) : (
+                    <div className="history-list">
+                      {assetShields.map((shield) => (
+                        <div className="history-row" key={shield.id}>
+                          <div className="history-marker shield-marker" aria-hidden="true" />
+                          <div className="history-copy">
+                            <strong>
+                              {shieldStateLabel(shield.state)}
+                            </strong>
+                            <span>
+                              Started {formatDate(shield.createdAt)}
+                            </span>
+                          </div>
+                          <span className="muted">
+                            {shield.score > 0
+                              ? `Exposure score ${shield.score} / 45`
+                              : "Score pending"}
+                          </span>
+                          <button
+                            className="text-button"
+                            onClick={() =>
+                              void loadShield(
+                                shield,
+                                !(isBusinessManager &&
+                                  shieldsInProgress.has(shield.state)),
+                              )
+                            }
+                          >
+                            {isBusinessManager &&
+                            shieldsInProgress.has(shield.state)
+                              ? "Continue SHIELD"
+                              : "View SHIELD"}
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -867,18 +1834,29 @@ function App() {
                     )}
                   </div>
                   <div className="panel guide-panel">
-                    <div className="eyebrow">BUSINESS OWNER GUIDE</div>
-                    <h2>What to expect</h2>
-                    <ul className="guide-list">
-                      <li>Answer based on the room as it is used today.</li>
-                      <li>Describe business impact, not security equipment.</li>
-                      <li>
-                        Security reviews the answers and confirms the tier.
-                      </li>
-                      <li>
-                        A tier changes only through a formal reassessment.
-                      </li>
-                    </ul>
+                    <div className="eyebrow">
+                      {isBusinessOwner ? "BUSINESS OWNER GUIDE" : "ASSESSMENT GUIDE"}
+                    </div>
+                    <h2>{isBusinessOwner ? "What to expect" : "Manager review"}</h2>
+                    {isBusinessOwner ? (
+                      <ul className="guide-list">
+                        <li>Answer based on the room as it is used today.</li>
+                        <li>Describe business impact, not security equipment.</li>
+                        <li>
+                          Security reviews the answers and confirms the tier.
+                        </li>
+                        <li>
+                          A tier changes only through a formal reassessment.
+                        </li>
+                      </ul>
+                    ) : (
+                      <ul className="guide-list">
+                        <li>Verify business answers against available evidence.</li>
+                        <li>Confirm the calculated tier or assign an override.</li>
+                        <li>Record SHIELD exposure with supporting evidence.</li>
+                        <li>SHIELD does not change the validated tier.</li>
+                      </ul>
+                    )}
                     <p className="guide-note">
                       SHIELD measures observable exposure; it does not change
                       this asset’s tier.
@@ -890,50 +1868,93 @@ function App() {
           </section>
         )}
 
-        {view === "launch" && (
-          <section className="launch-view" aria-labelledby="launch-title">
-            <button className="back-link" onClick={goToDashboard}>
-              <span aria-hidden="true">←</span> Back to my overview
+        {view === "assessment" && (
+          <section className="launch-view" aria-labelledby="assessment-title">
+            <button className="back-link" onClick={backToAssetDetails}>
+              <span aria-hidden="true">←</span> Back to asset details
             </button>
             {launchLoading ? (
               <div className="loading-state">
-                <span className="spinner" /> Loading your LAUNCH…
+                <span className="spinner" /> Loading assessment…
               </div>
-            ) : launchError && !activeLaunch ? (
+            ) : launchError && !activeLaunch && !activeShield ? (
               <div className="error-state" role="alert">
                 <div>
-                  <strong>Could not open this LAUNCH</strong>
+                  <strong>Could not open this assessment</strong>
                   <p>{launchError}</p>
                 </div>
                 <button className="button button-secondary" onClick={goToDashboard}>
                   Return to overview
                 </button>
               </div>
-            ) : activeLaunch ? (
+            ) : activeLaunch || activeShield ? (
               <>
                 <div className="page-heading launch-heading">
                   <div>
-                    <div className="eyebrow">BUSINESS IMPACT ASSESSMENT</div>
-                    <h1 id="launch-title">
-                      {assets.find((asset) => asset.id === activeLaunch.assetId)
-                        ?.name ?? "LAUNCH questionnaire"}
+                    <div className="eyebrow">
+                      {assessmentType === "launch"
+                        ? managerCanValidate
+                          ? "LAUNCH VALIDATION"
+                          : "BUSINESS IMPACT ASSESSMENT"
+                        : isBusinessManager
+                          ? "MANAGER SHIELD ASSESSMENT"
+                          : "SECURITY EXPOSURE ASSESSMENT"}
+                      {assessmentReadOnly ? " · READ ONLY" : ""}
+                    </div>
+                    <h1 id="assessment-title">
+                      {assets.find(
+                        (asset) =>
+                          asset.id === (activeLaunch?.assetId ?? activeShield?.assetId),
+                      )?.name ??
+                        (assessmentType === "launch"
+                          ? "LAUNCH questionnaire"
+                          : "SHIELD questionnaire")}
                     </h1>
                     <p>
-                      Answer for the actual room or area. Your business manager
-                      or security assessor will validate the result.
+                      {managerCanValidate
+                        ? "Review the submitted answers and confirm the calculated tier or select an override."
+                        : assessmentReadOnly
+                        ? `Viewing saved ${assessmentType.toUpperCase()} answers${activeLaunch ? ` · ${launchStateLabel(activeLaunch.state)}` : activeShield ? ` · ${shieldStateLabel(activeShield.state)}` : ""}. This historical assessment cannot be changed.`
+                        : assessmentType === "shield"
+                          ? activeShield?.state === "waiting-4-evidences"
+                            ? "Record evidence for each SHIELD rating, then submit to finalize the exposure score."
+                            : "Select the highest exposure condition actually observed for each question."
+                          : "Answer for the actual room or area. Your business manager or security assessor will validate the result."}
                     </p>
+                    {activeShield?.state === "evidences-submitted" ? (
+                      <p className="assessment-score">
+                        SHIELD exposure score is being finalized.
+                      </p>
+                    ) : activeShield &&
+                      (activeShield.score > 0 ||
+                        activeShield.state === "completed") ? (
+                      <p className="assessment-score">
+                        SHIELD exposure score:{" "}
+                        <strong>{activeShield.score} / 45</strong>
+                      </p>
+                    ) : null}
                   </div>
-                  <span className="draft-indicator">
-                    <span className="draft-dot" />
-                    {Object.keys(savedAnswers).length > 0
-                      ? "Saved progress"
-                      : "Not yet saved"}
-                  </span>
+                  {managerCanValidate ? (
+                    <span className="readonly-indicator">Manager review</span>
+                  ) : assessmentReadOnly ? (
+                    <span className="readonly-indicator">
+                      Read-only record
+                    </span>
+                  ) : (
+                    <span className="draft-indicator">
+                      <span className="draft-dot" />
+                      {Object.keys(savedAnswers).length > 0
+                        ? "Saved progress"
+                        : "Not yet saved"}
+                    </span>
+                  )}
                 </div>
 
                 <div className="launch-layout">
                   <aside className="step-panel" aria-label="Question categories">
-                    <div className="step-panel-title">LAUNCH CATEGORIES</div>
+                    <div className="step-panel-title">
+                      {assessmentType.toUpperCase()} CATEGORIES
+                    </div>
                     <div className="step-list">
                       {categories.map((item, index) => {
                         const itemQuestions = questions.filter(
@@ -967,12 +1988,14 @@ function App() {
                         );
                       })}
                     </div>
-                    <div className="step-help">
+                    {!assessmentReadOnly && (
+                      <div className="step-help">
                       <strong>Keyboard tip</strong>
                       <span>
                         Use Alt + ← / → to move between categories.
                       </span>
-                    </div>
+                      </div>
+                    )}
                   </aside>
 
                   <div className="question-panel">
@@ -984,7 +2007,11 @@ function App() {
                             OF {String(categories.length).padStart(2, "0")}
                           </span>
                           <span className="optional-label">
-                            Business owner input
+                            {assessmentType === "launch"
+                              ? assessmentReadOnly
+                                ? "Recorded business answer"
+                                : "Business owner input"
+                              : "Recorded exposure rating"}
                           </span>
                         </div>
                         <h2>{category.title}</h2>
@@ -1021,6 +2048,10 @@ function App() {
                                       <label
                                         className={`answer-option ${
                                           checked ? "answer-selected" : ""
+                                        } ${
+                                          assessmentReadOnly
+                                            ? "read-only-option"
+                                            : ""
                                         }`}
                                         htmlFor={inputId}
                                         key={answer.id}
@@ -1035,6 +2066,7 @@ function App() {
                                           name={question.id}
                                           value={answer.id}
                                           checked={checked}
+                                          disabled={assessmentReadOnly}
                                           onChange={() =>
                                             changeAnswer(question, answer.id)
                                           }
@@ -1056,6 +2088,132 @@ function App() {
                                     );
                                   })}
                                 </div>
+                                {assessmentType === "shield" && (
+                                  !assessmentReadOnly &&
+                                  isBusinessManager &&
+                                  activeShield?.state ===
+                                    "waiting-4-evidences" ? (
+                                    <div className="evidence-editor">
+                                      <strong>
+                                        Evidence
+                                        {question.evidenceRequired
+                                          ? " · Required"
+                                          : " · Optional"}
+                                      </strong>
+                                      <label>
+                                        <span>Description or source note</span>
+                                        <input
+                                          value={
+                                            evidenceDrafts[question.id]
+                                              ?.description ?? ""
+                                          }
+                                          onChange={(event) =>
+                                            setEvidenceDrafts((current) => ({
+                                              ...current,
+                                              [question.id]: {
+                                                description: event.target.value,
+                                                url:
+                                                  current[question.id]?.url ??
+                                                  "",
+                                              },
+                                            }))
+                                          }
+                                          placeholder="For example, site floor plan or timed walk"
+                                        />
+                                      </label>
+                                      <label>
+                                        <span>Evidence URL</span>
+                                        <input
+                                          type="url"
+                                          value={
+                                            evidenceDrafts[question.id]?.url ??
+                                            ""
+                                          }
+                                          onChange={(event) =>
+                                            setEvidenceDrafts((current) => ({
+                                              ...current,
+                                              [question.id]: {
+                                                description:
+                                                  current[question.id]
+                                                    ?.description ?? "",
+                                                url: event.target.value,
+                                              },
+                                            }))
+                                          }
+                                          placeholder="https://…"
+                                        />
+                                      </label>
+                                    </div>
+                                  ) : activeShield?.state ===
+                                    "waiting-4-answers" ? (
+                                    <div className="evidence-record">
+                                      {question.evidenceRequired
+                                        ? "Evidence will be recorded after all exposure ratings are saved."
+                                        : "Evidence is optional for this question."}
+                                    </div>
+                                  ) : (
+                                    <div className="evidence-record">
+                                      <strong>Recorded evidence</strong>
+                                      {(evidenceByQuestion[question.id] ?? [])
+                                        .length === 0 ? (
+                                        evidenceDrafts[question.id]
+                                          ?.description ||
+                                        evidenceDrafts[question.id]?.url ? (
+                                          <div className="evidence-item">
+                                            <span>
+                                              {evidenceDrafts[question.id]
+                                                ?.description ||
+                                                "Evidence source"}
+                                            </span>
+                                            {evidenceDrafts[question.id]?.url &&
+                                              safeEvidenceHref(
+                                                evidenceDrafts[question.id].url,
+                                              ) && (
+                                                <a
+                                                  href={safeEvidenceHref(
+                                                    evidenceDrafts[question.id]
+                                                      .url,
+                                                  )}
+                                                  target="_blank"
+                                                  rel="noreferrer"
+                                                >
+                                                  View evidence source
+                                                </a>
+                                              )}
+                                          </div>
+                                        ) : (
+                                          <span>No evidence was recorded.</span>
+                                        )
+                                      ) : (
+                                        (
+                                          evidenceByQuestion[question.id] ?? []
+                                        ).map((evidence) => (
+                                          <div
+                                            className="evidence-item"
+                                            key={evidence.id}
+                                          >
+                                            <span>
+                                              {evidence.description ||
+                                                "Evidence source"}
+                                            </span>
+                                            {evidence.url &&
+                                              safeEvidenceHref(evidence.url) && (
+                                                <a
+                                                  href={safeEvidenceHref(
+                                                    evidence.url,
+                                                  )}
+                                                  target="_blank"
+                                                  rel="noreferrer"
+                                                >
+                                                  View evidence source
+                                                </a>
+                                              )}
+                                          </div>
+                                        ))
+                                      )}
+                                    </div>
+                                  )
+                                )}
                               </fieldset>
                             );
                           })
@@ -1073,9 +2231,9 @@ function App() {
                             ← Previous
                           </button>
                           <span className="muted">
-                            {unansweredCount}{" "}
-                            {unansweredCount === 1 ? "question" : "questions"}{" "}
-                            unanswered
+                            {assessmentReadOnly
+                              ? `${questions.length - unansweredCount} of ${questions.length} questions answered`
+                              : `${unansweredCount} ${unansweredCount === 1 ? "question" : "questions"} unanswered`}
                           </span>
                           <button
                             className="button button-secondary"
@@ -1092,7 +2250,10 @@ function App() {
                       </>
                     ) : (
                       <div className="empty-state">
-                        <strong>No LAUNCH categories are available.</strong>
+                        <strong>
+                          No {assessmentType.toUpperCase()} categories are
+                          available.
+                        </strong>
                         <span>Check the API question configuration.</span>
                       </div>
                     )}
@@ -1101,7 +2262,84 @@ function App() {
                         {launchError}
                       </div>
                     )}
-                    <div className="launch-actions">
+                    {managerCanValidate && activeLaunch && (
+                      <div className="manager-approval">
+                        <div>
+                          <div className="eyebrow">TIER VALIDATION</div>
+                          <strong>
+                            Calculated suggestion:{" "}
+                            {activeLaunch.tierId
+                              ? tierById.get(activeLaunch.tierId)?.name ??
+                                "Tier calculated"
+                              : "Not available"}
+                          </strong>
+                          <p>
+                            Accept the calculated tier, or choose an override
+                            after reviewing the answers and applicable requirements.
+                          </p>
+                        </div>
+                        <label className="manager-tier-select">
+                          <span>Tier decision</span>
+                          <select
+                            aria-label="Tier decision"
+                            value={tierOverride}
+                            onChange={(event) =>
+                              setTierOverride(event.target.value)
+                            }
+                          >
+                            <option value="">Accept calculated tier</option>
+                            {tiers.map((tier) => (
+                              <option key={tier.id} value={tier.id}>
+                                {tier.name} · {tier.title}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          className="button button-primary"
+                          onClick={() => void validateLaunchTier()}
+                          disabled={launchSaving}
+                        >
+                          {launchSaving ? "Validating…" : "Validate tier"}
+                        </button>
+                      </div>
+                    )}
+                    {assessmentType === "shield" &&
+                      !assessmentReadOnly &&
+                      activeShield && (
+                        <div className="launch-actions">
+                          <button
+                            className="button button-secondary"
+                            onClick={() =>
+                              activeShield.state === "waiting-4-evidences"
+                                ? void saveShieldEvidences(false)
+                                : void saveShieldAnswers(false)
+                            }
+                            disabled={shieldSaving || questions.length === 0}
+                          >
+                            {shieldSaving ? "Saving…" : "Save progress"}
+                          </button>
+                          <button
+                            className="button button-primary"
+                            onClick={() =>
+                              activeShield.state === "waiting-4-evidences"
+                                ? void saveShieldEvidences(true)
+                                : void saveShieldAnswers(true)
+                            }
+                            disabled={shieldSaving || questions.length === 0}
+                          >
+                            {shieldSaving
+                              ? "Submitting…"
+                              : activeShield.state === "waiting-4-evidences"
+                                ? "Complete SHIELD"
+                                : "Continue to evidence"}
+                          </button>
+                        </div>
+                      )}
+                    {!assessmentReadOnly &&
+                      assessmentType === "launch" &&
+                      !managerCanValidate && (
+                      <div className="launch-actions">
                       <button
                         className="button button-secondary"
                         onClick={() => void saveLaunch(false)}
@@ -1116,17 +2354,29 @@ function App() {
                       >
                         {launchSaving ? "Submitting…" : "Submit LAUNCH"}
                       </button>
-                    </div>
+                      </div>
+                    )}
+                    {activeShield?.state === "evidences-submitted" && (
+                      <p className="privacy-note">
+                        Evidence was submitted. The workflow is finalizing the
+                        exposure score.
+                      </p>
+                    )}
                     <p className="privacy-note">
-                      Your answers are stored by the PSAP API. You may save
-                      partial progress and return later.
+                      {assessmentReadOnly
+                        ? "This saved assessment is read-only. Use Back to asset details to return to the assessment history."
+                        : assessmentType === "shield"
+                          ? activeShield?.state === "waiting-4-evidences"
+                            ? "Provide a description, a source link, or both for every required question. You can save partial evidence before completing SHIELD."
+                            : "Rate observable conditions only. You can save partial answers before continuing to evidence."
+                          : "Your answers are stored by the PSAP API. You may save partial progress and return later."}
                     </p>
                   </div>
                 </div>
               </>
             ) : (
               <div className="empty-state">
-                <strong>No LAUNCH selected.</strong>
+                <strong>No assessment selected.</strong>
                 <button className="button button-secondary" onClick={goToDashboard}>
                   Return to overview
                 </button>
@@ -1138,7 +2388,7 @@ function App() {
 
       {showRequestDialog && (
         <AssetRequestDialog
-          ownerId={ownerId}
+          ownerId={activeWorkerId}
           ownerName={owner?.name ?? "Business owner"}
           owners={ownerOptions}
           managers={managerOptions}

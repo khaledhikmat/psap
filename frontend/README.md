@@ -1,8 +1,22 @@
-# PSAP business-owner demo
+# PSAP business portals demo
 
-The React interface uses the PSAP API for its assets, LAUNCH questionnaires,
-tiers, workers, and assessment history. It currently implements the
-Business Owner role only.
+The shared React interface uses the PSAP API for assets, questionnaires, tiers,
+workers, and assessment history. The demo user picker selects assigned Business
+Owner and Business Manager actors and routes to `/business-owner` or
+`/business-manager`. Both roles can read historic LAUNCH and SHIELD answers.
+
+Business Owners can request assets, complete LAUNCH answers, and request
+reassessments. Business Managers can review submitted LAUNCH answers, accept the
+calculated tier or assign a tier override, and start or continue SHIELD
+assessments with required evidence. Manager SHIELD answers and evidence are
+saved through the API. New LAUNCH tier approvals remain open for seven days
+after the tier is calculated. Timed-out LAUNCH records remain visible in the
+manager queue with guidance to request a reassessment. Security Assessor and
+Implementer portals are not part of this demo.
+
+The asset portfolio is a locally searchable table, so names, IDs, locations,
+tiers, and statuses can be filtered without another API request. This is demo
+role selection, not authentication or authorization.
 
 ## Run locally
 

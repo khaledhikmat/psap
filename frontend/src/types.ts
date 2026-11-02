@@ -54,6 +54,7 @@ export type Question = {
   categoryId: string;
   text: string;
   allowMultipleAnswers: boolean;
+  evidenceRequired: boolean;
   displayOrder: number;
 };
 
@@ -76,6 +77,22 @@ export type Baseline = {
   id: string;
   state: string;
   createdAt: string;
+};
+
+export type Shield = {
+  id: string;
+  assetId: string;
+  score: number;
+  state: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Evidence = {
+  id: string;
+  questionId: string;
+  description: string;
+  url: string;
 };
 
 export type AssetRequest = {

@@ -1,7 +1,7 @@
 # PSAP 2.0: project notes for Copilot
 
 Go backend in `backend/` (Temporal workflows + SQLite + Gin API + a test CLI); product spec in `prd.md`.
-Status below was last updated 2026-11-01. Keep this file current when the work moves on.
+Status below was last updated 2026-11-02. Keep this file current when the work moves on.
 
 ## Status: backend migrated to the new answer model (uncommitted)
 
@@ -43,8 +43,19 @@ The whole backend was adapted to it and then to the completed launch and shield 
 - The signal payload shapes changed, so Temporal workflows still running from an older version would break.
 - Temporal registers activities by method name; keep names unique across launch, shield and notification activities.
 
+## Frontend status (2026-11-02)
+
+- `frontend/` is a shared React application with `/business-owner` and `/business-manager` routes.
+- The demo actor picker selects assigned workers and changes portal routes; it is not authentication or authorization.
+- Owners can request assets and submit LAUNCH answers. Managers can validate submitted LAUNCH tiers and start/continue SHIELD,
+  including recording required evidence. Both roles can view historic LAUNCH and SHIELD assessments read-only.
+- New manager tier approvals have a seven-day deadline beginning when the tier is calculated; expired launches remain visible
+  in the manager queue as read-only records.
+- Security Assessor and Security Implementer portals are not implemented. Baselines and compliance/investment workflows remain open.
+- Verify frontend changes with `npm --prefix frontend run build`.
+
 ## How to verify
-- `cd backend && go build ./... && go vet ./... && go test ./service/data/`. Vet prints 2 old warnings in `mode/cli.go`
+- `cd backend && go build ./... && go vet ./... && go test ./service/data/ ./service/flow/...`. Vet prints 2 old warnings in `mode/cli.go`
   (`%s` with a `*string` TierID); they are pre-existing and were left alone.
 - End to end: the user normally has a Temporal dev server on :7233 (the Go clients dial the default address, so they cannot
   use another port). Check it is idle with `temporal workflow list`. Run the worker with
@@ -57,7 +68,7 @@ The whole backend was adapted to it and then to the completed launch and shield 
    launch finalize with unanswered questions stays allowed (unlike shield).
 2. Seed text: trailing `?` removed from some answers, typos fixed (upports, ompact, Modederate), "workshop" kept, shield title "Recog" kept as written. Confirm.
 3. Not done: launch-side evidence (the data layer supports it, no workflow uses it); PRD steps 5-6 (baseline, compliance, action items);
-   an endpoint for a single user answer; the frontend (`frontend/mockup/`).
-4. Known unfixed issues: CLI prints `%!s(*string=...)` for `l.TierID`; `workflows/launch.go` is not gofmt'd.
+   an endpoint for a single user answer; Security Assessor and Security Implementer portals.
+4. Known unfixed issue: CLI prints `%!s(*string=...)` for `l.TierID`.
 5. Nothing is committed. When committing, add the trailer `Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>`.
    Untracked: `prd.md`, `backend/service/answers/`, `backend/service/data/answers_test.go`.

@@ -17,6 +17,7 @@ const (
 	LaunchSubmitAnswersSignalName   = "launch-submit-answers-signal"
 	LaunchFinalizeAnswersSignalName = "launch-finalize-answers-signal"
 	LaunchValidateTierSignalName    = "launch-validate-tier-signal"
+	launchTierApprovalTimeout       = 7 * 24 * time.Hour
 )
 
 // Queries
@@ -36,16 +37,17 @@ type LaunchRequest struct {
 	MaxEscalations    int
 
 	// Carried over by Continue-As-New. Leave empty when starting a new launch.
-	LaunchID    string
-	StartedAt   time.Time
-	State       model.LaunchState
-	TierID      string
-	Points      int
-	Answered    int
-	Questions   int
-	Reminders   int
-	Warnings    int
-	Escalations int
+	LaunchID             string
+	StartedAt            time.Time
+	TierApprovalDeadline time.Time
+	State                model.LaunchState
+	TierID               string
+	Points               int
+	Answered             int
+	Questions            int
+	Reminders            int
+	Warnings             int
+	Escalations          int
 }
 
 type LaunchResult struct {
@@ -101,14 +103,28 @@ func Launch(ctx workflow.Context, req LaunchRequest) (LaunchResult, error) {
 		return LaunchResult{}, err
 	}
 
-	err := waitUntil(ctx, w.isDone, w.continueAsNew,
-		onSignal(ctx, LaunchSubmitAnswersSignalName, w.onAnswersSubmitted),
-		onSignal(ctx, LaunchFinalizeAnswersSignalName, w.onAnswersFinalized),
-		onSignal(ctx, LaunchValidateTierSignalName, w.onTierValidated),
-		onTimeout(ctx, seconds(req.ReminderTimeout), w.remind),
-		onTimeout(ctx, seconds(req.WarningTimeout), w.warn),
-		onTimeout(ctx, seconds(req.EscalationTimeout), w.escalate),
+	version := workflow.GetVersion(
+		ctx,
+		"launch-manager-approval-window",
+		workflow.DefaultVersion,
+		1,
 	)
+	var err error
+	if version == workflow.DefaultVersion {
+		err = waitUntil(ctx, w.isDone, w.continueAsNew,
+			onSignal(ctx, LaunchSubmitAnswersSignalName, w.onAnswersSubmitted),
+			onSignal(ctx, LaunchFinalizeAnswersSignalName, w.onAnswersFinalized),
+			onSignal(ctx, LaunchValidateTierSignalName, w.onTierValidated),
+			onTimeout(ctx, seconds(req.ReminderTimeout), w.remind),
+			onTimeout(ctx, seconds(req.WarningTimeout), w.warn),
+			onTimeout(ctx, seconds(req.EscalationTimeout), w.escalate),
+		)
+	} else {
+		err = w.waitForOwnerAnswers(ctx, req)
+		if err == nil && w.state == model.WaitingForTierApprovalLaunchState {
+			err = w.waitForTierApproval(ctx)
+		}
+	}
 	if ctx.Err() != nil {
 		return w.cancelled()
 	}
@@ -133,6 +149,41 @@ func Launch(ctx workflow.Context, req LaunchRequest) (LaunchResult, error) {
 	return w.result(), nil
 }
 
+func (w *launch) waitForOwnerAnswers(ctx workflow.Context, req LaunchRequest) error {
+	phaseCtx, cancel := workflow.WithCancel(ctx)
+	defer cancel()
+	return waitUntil(phaseCtx,
+		func() bool { return w.state != model.WaitingForAnswersLaunchState },
+		w.continueAsNew,
+		onSignal(phaseCtx, LaunchSubmitAnswersSignalName, w.onAnswersSubmitted),
+		onSignal(phaseCtx, LaunchFinalizeAnswersSignalName, w.onAnswersFinalized),
+		onTimeout(phaseCtx, seconds(req.ReminderTimeout), w.remind),
+		onTimeout(phaseCtx, seconds(req.WarningTimeout), w.warn),
+		onTimeout(phaseCtx, seconds(req.EscalationTimeout), w.escalate),
+	)
+}
+
+func (w *launch) waitForTierApproval(ctx workflow.Context) error {
+	if w.tierApprovalDeadline.IsZero() {
+		w.tierApprovalDeadline = workflow.Now(ctx).Add(launchTierApprovalTimeout)
+	}
+	remaining := w.tierApprovalDeadline.Sub(workflow.Now(ctx))
+	if remaining <= 0 {
+		w.timeoutTierApproval()
+		return nil
+	}
+
+	phaseCtx, cancel := workflow.WithCancel(ctx)
+	defer cancel()
+	return waitUntil(phaseCtx, w.isDone, w.continueAsNew,
+		onSignal(phaseCtx, LaunchValidateTierSignalName, w.onTierValidated),
+		onTimeout(phaseCtx, 24*time.Hour, w.remind),
+		onTimeout(phaseCtx, 5*24*time.Hour, w.warn),
+		onTimeout(phaseCtx, 6*24*time.Hour, w.escalate),
+		onTimeout(phaseCtx, remaining, w.timeoutTierApproval),
+	)
+}
+
 // launch holds the workflow's durable state. It isn't persisted directly: Temporal
 // reconstructs it by replaying history events (activity completions, signals, timers)
 // through this code. That's why mutations must only happen via deterministic paths
@@ -146,16 +197,17 @@ type launch struct {
 	launchActs *launchactivities.Activities
 	notifyActs *notificationactivities.Activities
 
-	id          string
-	startedAt   time.Time
-	state       model.LaunchState
-	tierID      string
-	points      int
-	answered    int
-	questions   int
-	reminders   int
-	warnings    int
-	escalations int
+	id                   string
+	startedAt            time.Time
+	state                model.LaunchState
+	tierID               string
+	tierApprovalDeadline time.Time
+	points               int
+	answered             int
+	questions            int
+	reminders            int
+	warnings             int
+	escalations          int
 
 	persisted persistedLaunch // what the data service last stored for this launch
 }
@@ -170,19 +222,20 @@ type persistedLaunch struct {
 
 func newLaunch(ctx workflow.Context, req LaunchRequest) *launch {
 	w := &launch{
-		ctx:         ctx,
-		req:         req,
-		logger:      workflow.GetLogger(ctx),
-		id:          req.LaunchID,
-		startedAt:   req.StartedAt,
-		state:       req.State,
-		tierID:      req.TierID,
-		points:      req.Points,
-		answered:    req.Answered,
-		questions:   req.Questions,
-		reminders:   req.Reminders,
-		warnings:    req.Warnings,
-		escalations: req.Escalations,
+		ctx:                  ctx,
+		req:                  req,
+		logger:               workflow.GetLogger(ctx),
+		id:                   req.LaunchID,
+		startedAt:            req.StartedAt,
+		state:                req.State,
+		tierID:               req.TierID,
+		tierApprovalDeadline: req.TierApprovalDeadline,
+		points:               req.Points,
+		answered:             req.Answered,
+		questions:            req.Questions,
+		reminders:            req.Reminders,
+		warnings:             req.Warnings,
+		escalations:          req.Escalations,
 	}
 	if w.startedAt.IsZero() {
 		w.startedAt = workflow.Now(ctx)
@@ -314,6 +367,10 @@ func (w *launch) onAnswersFinalized(sig SubmitAnswersSignal) {
 	w.points = res.Points
 	w.tierID = res.TierID
 	w.state = model.WaitingForTierApprovalLaunchState
+	w.tierApprovalDeadline = workflow.Now(w.ctx).Add(launchTierApprovalTimeout)
+	w.reminders = 0
+	w.warnings = 0
+	w.escalations = 0
 	w.logger.Info("Tier calculated", "assetID", w.req.AssetID, "LaunchID", w.id, "points", w.points, "tierID", w.tierID)
 	w.persistStep()
 }
@@ -328,6 +385,20 @@ func (w *launch) onTierValidated(sig ValidateTierSignal) {
 		w.tierID = sig.TierID
 	}
 	w.state = model.TierValidatedLaunchState
+}
+
+func (w *launch) timeoutTierApproval() bool {
+	if w.state != model.WaitingForTierApprovalLaunchState {
+		return false
+	}
+	w.logger.Warn("Business manager tier approval timed out",
+		"assetID", w.req.AssetID,
+		"LaunchID", w.id,
+		"deadline", w.tierApprovalDeadline,
+	)
+	w.state = model.TimedOutLaunchState
+	w.persistStep()
+	return false
 }
 
 func (w *launch) expectState(signal string, want model.LaunchState) bool {
@@ -418,6 +489,7 @@ func (w *launch) continueAsNew() error {
 	next := w.req
 	next.LaunchID = w.id
 	next.StartedAt = w.startedAt
+	next.TierApprovalDeadline = w.tierApprovalDeadline
 	next.State = w.state
 	next.TierID = w.tierID
 	next.Points = w.points
@@ -433,8 +505,8 @@ func (w *launch) continueAsNew() error {
 func (w *launch) startShield() error {
 	// Execute the InitiateShield workflow using ExecuteChildWorkflow
 	childCtx := workflow.WithChildOptions(w.ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:        ShieldWorkflowID(w.req.AssetID),
-		TaskQueue:         workflow.GetInfo(w.ctx).TaskQueueName,
+		WorkflowID:            ShieldWorkflowID(w.req.AssetID),
+		TaskQueue:             workflow.GetInfo(w.ctx).TaskQueueName,
 		WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	})
 
