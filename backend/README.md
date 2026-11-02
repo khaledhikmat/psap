@@ -112,11 +112,29 @@ GET  /workers/:id     # Get worker by ID
 ### Assets
 ```
 GET  /assets              # List all assets
+POST /assets              # Create an asset request (starts in pending-launch)
 GET  /assets/:id          # Get asset by ID
 GET  /assets/:id/launches # List asset's launches
 GET  /assets/:id/shields  # List asset's shields
 GET  /assets/:id/baselines # List asset's baselines
 ```
+
+**POST /assets**
+```json
+{
+  "name": "North Campus Archive",
+  "campus": "North Campus",
+  "building": "A2",
+  "floor": "2",
+  "space": "ARC-02",
+  "priority": "normal",
+  "businessOwnerId": "worker-owner-1",
+  "businessManagerId": "worker-manager-1"
+}
+```
+
+The owner and manager must be existing workers. Creating the asset does not start a launch;
+the client can start one with `POST /launches` after the request is saved.
 
 ### Launches
 ```

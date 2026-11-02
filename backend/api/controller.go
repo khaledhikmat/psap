@@ -133,6 +133,7 @@ func (c *Controller) Routes(rootRouter *gin.RouterGroup) {
 	assetsRouter := rootRouter.Group("/assets")
 	{
 		assetsRouter.GET("", c.listAssets)
+		assetsRouter.POST("", c.createAsset)
 		assetsRouter.GET("/:id", c.showAsset)
 		assetsRouter.GET("/:id/launches", c.listAssetLaunches)
 		assetsRouter.GET("/:id/shields", c.listAssetShields)

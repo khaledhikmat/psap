@@ -205,3 +205,24 @@ Exterior / Environmental Exposure:
 
 Score 1 = lowest exposure; 5 = highest. Record the evidence/source. Select the highest applicable exposure condition actually present and attach a photo or drawing reference for the condition that drove the score.
 
+### User Interface
+
+#### Demo Version
+
+The initial user interface is for demo purpose so we can convey the concepts to stake holders. For this demo version, I would like a React interface that calls the API layer. No need to worry about auth/authz for now as these will change dramatically once we are in our real environment.
+
+Given that this is a demo version, I would like to show how each actor access looks like:
+- Business Owners: own secure rooms, approve acesss requests, request snew rooms and request launches.
+- Business Managers: facility managers who assess correct laucnhes and approves them. They are also responsible to shield rooms.
+- Security Assessors: business analysts who work for the STAT team. The tier and requirements set what is mandatory. STAT picks the control type, guided by SHIELD drivers.
+- Security Implementers: business analysts who install technology in rooms. Usually they are part of the STAT team and normally the same people as security assessors.
+
+But since we have not implemented the last 2 actors, let us leave them off.
+
+##### Business Owners
+
+- Show a list of assets they own, a way to request a new asset and a way to re-assess existing ones.
+- Show a list of pending launches they need to complete. 
+- Pending launches show the question categories on the left and an indicator whether they are completed or not. Once a category is clicked, the questions do open and the business owner can answer them as needed. Please make the navigation among the different categories simple and intuitive (perhaps allow arrow keys to navigate in addition to clicks). 
+- Business Owners can view the detail of the completed or in-progress assets, associated tier, associated launches and associated guides. 
+
