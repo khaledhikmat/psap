@@ -112,10 +112,10 @@ func seedWorkers() []model.Worker {
 	return []model.Worker{
 		{ID: "worker-owner-1", Name: "Dana Whitfield", Title: "Facilities Director", Organization: "Facilities"},
 		{ID: "worker-owner-2", Name: "Marcus Ito", Title: "Lab Operations Lead", Organization: "Research"},
-		{ID: "worker-manager-1", Name: "Priya Raman", Title: "VP Operations", Organization: "Operations"},
+		{ID: "worker-manager-1", Name: "Jessica Wheeler", Title: "VP Operations", Organization: "Operations"},
 		{ID: "worker-manager-2", Name: "Tom Okafor", Title: "Director of Infrastructure", Organization: "IT"},
 		{ID: "worker-reviewer-1", Name: "Elena Novak", Title: "Security Analyst", Organization: "Corporate Security"},
-		{ID: "worker-admin-1", Name: "Sam Patel", Title: "PSAP Administrator", Organization: "Corporate Security"},
+		{ID: "worker-admin-1", Name: "Sam Perkins", Title: "PSAP Administrator", Organization: "Corporate Security"},
 	}
 }
 
