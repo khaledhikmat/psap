@@ -261,6 +261,47 @@ func (s *service) FinalizeLaunchAnswers(ctx context.Context, assetID string, sub
 	})
 }
 
+// ReviseLaunchAnswers lets the business manager change the owner's answers while the tier
+// awaits approval. The changes are recorded in the answer history under the manager and the
+// suggested tier is recalculated; the returned tier ID is the new suggestion.
+func (s *service) ReviseLaunchAnswers(ctx context.Context, assetID string, submissions []model.AnswerSubmission) (string, error) {
+	if err := s.expectState(ctx, assetID, model.WaitingForTierApprovalLaunchState); err != nil {
+		return "", err
+	}
+	if err := s.validateAnswers(ctx, model.LaunchQuestionCategory, submissions); err != nil {
+		return "", err
+	}
+
+	handle, err := s.tClient.UpdateWorkflow(ctx, client.UpdateWorkflowOptions{
+		WorkflowID:   workflows.LaunchWorkflowID(assetID),
+		UpdateName:   workflows.LaunchReviseAnswersUpdateName,
+		WaitForStage: client.WorkflowUpdateStageCompleted,
+		Args:         []interface{}{workflows.ReviseAnswersUpdate{Answers: submissions}},
+	})
+	if err != nil {
+		return "", s.updateError(err)
+	}
+	var result workflows.ReviseAnswersResult
+	if err := handle.Get(ctx, &result); err != nil {
+		return "", s.updateError(err)
+	}
+	return result.TierID, nil
+}
+
+// updateError maps a rejected update to ErrInvalidLaunchState when the workflow said the
+// launch is in the wrong state, and logs anything else.
+func (s *service) updateError(err error) error {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) && appErr.Type() == "InvalidLaunchState" {
+		return fmt.Errorf("%w: %s", ErrInvalidLaunchState, appErr.Message())
+	}
+	lgr.Logger.Error(
+		"Unable to update workflow",
+		slog.Any("error", xerrors.New(err.Error())),
+	)
+	return err
+}
+
 // ValidateTier approves the launch's tier. An empty tierID accepts the calculated tier; any
 // other value overrides it.
 func (s *service) ValidateTier(ctx context.Context, assetID string, tierID string) error {

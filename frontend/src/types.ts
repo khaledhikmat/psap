@@ -73,6 +73,15 @@ export type UserAnswerDetail = {
   }>;
 };
 
+export type AnswerHistoryEntry = {
+  id: string;
+  questionId: string;
+  previousPredefinedAnswerId?: string;
+  newPredefinedAnswerId: string;
+  changedBy: string;
+  changedAt: string;
+};
+
 export type Baseline = {
   id: string;
   state: string;

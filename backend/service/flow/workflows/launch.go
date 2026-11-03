@@ -20,6 +20,14 @@ const (
 	launchTierApprovalTimeout       = 7 * 24 * time.Hour
 )
 
+// Updates
+const (
+	// LaunchReviseAnswersUpdateName lets the business manager change the owner's answers while
+	// the tier is waiting for approval. It is an update, not a signal, so the caller gets the
+	// recalculated tier back and learns about rejections.
+	LaunchReviseAnswersUpdateName = "launch-revise-answers-update"
+)
+
 // Queries
 const (
 	LaunchStateQueryName = "launch-state-query"
@@ -83,6 +91,18 @@ type ValidateTierSignal struct {
 	TierID string
 }
 
+// ReviseAnswersUpdate carries the answers the business manager changed during validation.
+type ReviseAnswersUpdate struct {
+	Answers []model.AnswerSubmission
+}
+
+// ReviseAnswersResult reports the tier recalculated from the revised answers.
+type ReviseAnswersResult struct {
+	TierID   string
+	Points   int
+	Answered int
+}
+
 // Launch creates a launch for an asset and collects the business owner's answers. Once the
 // answers are finalized it calculates the tier, then waits for the business manager to
 // validate it. Reminders and warnings nudge whoever the launch is waiting on; escalations go
@@ -94,6 +114,9 @@ func Launch(ctx workflow.Context, req LaunchRequest) (LaunchResult, error) {
 	w := newLaunch(ctx, req)
 
 	if err := w.setupQuery(); err != nil {
+		return LaunchResult{}, err
+	}
+	if err := w.setupUpdates(); err != nil {
 		return LaunchResult{}, err
 	}
 	if err := w.create(); err != nil {
@@ -130,6 +153,10 @@ func Launch(ctx workflow.Context, req LaunchRequest) (LaunchResult, error) {
 	}
 	if err != nil {
 		return w.result(), err
+	}
+	// Let an in-flight revision finish before the final state is persisted.
+	if err := workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) }); err != nil {
+		return w.cancelled()
 	}
 
 	if err := w.persist(); err != nil {
@@ -202,6 +229,7 @@ type launch struct {
 	state                model.LaunchState
 	tierID               string
 	tierApprovalDeadline time.Time
+	revising             bool // a manager's answer revision is in flight
 	points               int
 	answered             int
 	questions            int
@@ -246,6 +274,66 @@ func newLaunch(ctx workflow.Context, req LaunchRequest) *launch {
 	return w
 }
 
+func (w *launch) setupUpdates() error {
+	return workflow.SetUpdateHandlerWithOptions(w.ctx, LaunchReviseAnswersUpdateName, w.reviseAnswers,
+		workflow.UpdateHandlerOptions{Validator: w.validateRevision})
+}
+
+func (w *launch) validateRevision(_ workflow.Context, upd ReviseAnswersUpdate) error {
+	if w.state != model.WaitingForTierApprovalLaunchState {
+		return temporal.NewNonRetryableApplicationError(
+			"launch is "+string(w.state)+"; answers can only be revised while the tier awaits approval",
+			"InvalidLaunchState", nil)
+	}
+	if w.revising {
+		return temporal.NewNonRetryableApplicationError("another revision is in progress", "RevisionInProgress", nil)
+	}
+	if len(upd.Answers) == 0 {
+		return temporal.NewNonRetryableApplicationError("no answers to revise", "InvalidAnswer", nil)
+	}
+	return nil
+}
+
+// reviseAnswers saves the business manager's changes to the owner's answers, which records
+// them in the answer history under the manager, and recalculates the suggested tier.
+func (w *launch) reviseAnswers(ctx workflow.Context, upd ReviseAnswersUpdate) (ReviseAnswersResult, error) {
+	w.revising = true
+	defer func() { w.revising = false }()
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: 10 * time.Second})
+	var saved launchactivities.LaunchAnswersSaveResult
+	err := workflow.ExecuteActivity(ctx, w.launchActs.SaveAnswers, launchactivities.LaunchAnswersSaveRequest{
+		LaunchID:  w.id,
+		Answers:   upd.Answers,
+		UpdatedBy: w.req.BusinessManager,
+	}).Get(ctx, &saved)
+	if err != nil {
+		return ReviseAnswersResult{}, err
+	}
+	var calc launchactivities.LaunchTierCalculationResult
+	err = workflow.ExecuteActivity(ctx, w.launchActs.CalculateTier, launchactivities.LaunchTierCalculationRequest{
+		LaunchID: w.id,
+	}).Get(ctx, &calc)
+	if err != nil {
+		return ReviseAnswersResult{}, err
+	}
+
+	// A timeout may have ended the approval while the activities ran; the answers stay saved
+	// and recorded, but the launch keeps the tier it ended with.
+	if w.state != model.WaitingForTierApprovalLaunchState {
+		return ReviseAnswersResult{}, temporal.NewNonRetryableApplicationError(
+			"launch is "+string(w.state)+"; the revision was recorded but no longer applies", "InvalidLaunchState", nil)
+	}
+	w.answered = saved.Answered
+	w.points = calc.Points
+	w.tierID = calc.TierID
+	w.logger.Info("Answers revised by manager", "assetID", w.req.AssetID, "LaunchID", w.id, "points", w.points, "tierID", w.tierID)
+	if err := w.persistWith(ctx); err != nil {
+		w.logger.Error("Failed to persist revised launch", "assetID", w.req.AssetID, "LaunchID", w.id, "error", err)
+	}
+	return ReviseAnswersResult{TierID: w.tierID, Points: w.points, Answered: w.answered}, nil
+}
+
 func (w *launch) setupQuery() error {
 	return workflow.SetQueryHandler(w.ctx, LaunchStateQueryName, func() (LaunchResult, error) {
 		return w.result(), nil
@@ -280,6 +368,12 @@ func (w *launch) create() error {
 // persist stores the launch's tier, state and nudge counts, unless they haven't changed
 // since the last call.
 func (w *launch) persist() error {
+	return w.persistWith(w.ctx)
+}
+
+// persistWith is persist on the given context. Update handlers run in their own coroutine and
+// must block on their own context, not on the workflow's.
+func (w *launch) persistWith(ctx workflow.Context) error {
 	current := persistedLaunch{
 		tierID:      w.tierID,
 		state:       w.state,
@@ -290,14 +384,14 @@ func (w *launch) persist() error {
 	if current == w.persisted {
 		return nil
 	}
-	err := workflow.ExecuteActivity(w.ctx, w.launchActs.Persist, launchactivities.LaunchPersistRequest{
+	err := workflow.ExecuteActivity(ctx, w.launchActs.Persist, launchactivities.LaunchPersistRequest{
 		LaunchID:    w.id,
 		TierID:      w.tierID,
 		State:       w.state,
 		Reminders:   w.reminders,
 		Warnings:    w.warnings,
 		Escalations: w.escalations,
-	}).Get(w.ctx, nil)
+	}).Get(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -375,8 +469,12 @@ func (w *launch) onAnswersFinalized(sig SubmitAnswersSignal) {
 	w.persistStep()
 }
 
-// onTierValidated completes the launch; Launch's final persist stores it.
+// onTierValidated completes the launch; Launch's final persist stores it. A revision in
+// flight finishes first, so the manager validates the tier that the revised answers produce.
 func (w *launch) onTierValidated(sig ValidateTierSignal) {
+	if err := workflow.Await(w.ctx, func() bool { return !w.revising }); err != nil {
+		return
+	}
 	if !w.expectState(LaunchValidateTierSignalName, model.WaitingForTierApprovalLaunchState) {
 		return
 	}
@@ -486,6 +584,10 @@ func (w *launch) nudge(kind string, count *int, max int, recipient, message stri
 
 // continueAsNew starts a fresh run that carries the current state forward.
 func (w *launch) continueAsNew() error {
+	// Updates in flight would be lost; let them finish first.
+	if err := workflow.Await(w.ctx, func() bool { return workflow.AllHandlersFinished(w.ctx) }); err != nil {
+		return err
+	}
 	next := w.req
 	next.LaunchID = w.id
 	next.StartedAt = w.startedAt
@@ -504,11 +606,16 @@ func (w *launch) continueAsNew() error {
 // startShield initiates the Shield workflow for the asset using the Temporal service.
 func (w *launch) startShield() error {
 	// Execute the InitiateShield workflow using ExecuteChildWorkflow
-	childCtx := workflow.WithChildOptions(w.ctx, workflow.ChildWorkflowOptions{
+	opts := workflow.ChildWorkflowOptions{
 		WorkflowID:            ShieldWorkflowID(w.req.AssetID),
 		TaskQueue:             workflow.GetInfo(w.ctx).TaskQueueName,
 		WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-	})
+	}
+	// The SHIELD must outlive the LAUNCH; the default policy terminates the child when the parent closes.
+	if workflow.GetVersion(w.ctx, "shield-child-abandon", workflow.DefaultVersion, 1) >= 1 {
+		opts.ParentClosePolicy = enumspb.PARENT_CLOSE_POLICY_ABANDON
+	}
+	childCtx := workflow.WithChildOptions(w.ctx, opts)
 
 	shieldReq := ShieldRequest{
 		AssetID:           w.req.AssetID,

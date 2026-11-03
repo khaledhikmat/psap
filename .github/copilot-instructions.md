@@ -49,8 +49,15 @@ The whole backend was adapted to it and then to the completed launch and shield 
 - The demo actor picker selects assigned workers and changes portal routes; it is not authentication or authorization.
 - Owners can request assets and submit LAUNCH answers. Managers can validate submitted LAUNCH tiers and start/continue SHIELD,
   including recording required evidence. Both roles can view historic LAUNCH and SHIELD assessments read-only.
+- While a LAUNCH waits for tier approval, managers may revise the owner's answers: `POST /launches/:id/revise-answers` sends a
+  Temporal Update (`launch-revise-answers-update`) that saves the changes with the manager as `ChangedBy`, recalculates the tier
+  and returns it synchronously. Changes appear in `GET /launches/:id/history`. Restart workers after changing workflow code.
+- "Start SHIELD" asks for confirmation when a SHIELD is already running; confirming terminates it and starts a new one.
 - New manager tier approvals have a seven-day deadline beginning when the tier is calculated; expired launches remain visible
   in the manager queue as read-only records.
+- Admins (`/admin`, workers whose ID starts with `worker-admin`; one is seeded, and added to older databases on startup) get a
+  read-only portal: searchable assets, LAUNCHes and SHIELDs (by location, owner, manager) sorted by last update. They open the
+  asset detail history but have no actions.
 - Security Assessor and Security Implementer portals are not implemented. Baselines and compliance/investment workflows remain open.
 - Verify frontend changes with `npm --prefix frontend run build`.
 

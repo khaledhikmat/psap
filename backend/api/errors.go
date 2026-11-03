@@ -18,5 +18,8 @@ func submissionErrorStatus(err error) int {
 	if errors.Is(err, flow.ErrInvalidAnswer) || errors.Is(err, flow.ErrIncompleteShield) {
 		return http.StatusBadRequest
 	}
+	if errors.Is(err, flow.ErrInvalidLaunchState) {
+		return http.StatusConflict
+	}
 	return http.StatusInternalServerError
 }

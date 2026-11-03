@@ -150,6 +150,7 @@ func (c *Controller) Routes(rootRouter *gin.RouterGroup) {
 		launchesRouter.POST("", c.initiateLaunch)
 		launchesRouter.POST("/:id/submit-answers", c.submitLaunchAnswers)
 		launchesRouter.POST("/:id/finalize-answers", c.finalizeLaunchAnswers)
+		launchesRouter.POST("/:id/revise-answers", c.reviseLaunchAnswers)
 		launchesRouter.POST("/:id/validate-tier", c.validateLaunchTier)
 	}
 

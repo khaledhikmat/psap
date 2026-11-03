@@ -7,11 +7,14 @@ Owner and Business Manager actors and routes to `/business-owner` or
 
 Business Owners can request assets, complete LAUNCH answers, and request
 reassessments. Business Managers can review submitted LAUNCH answers, accept the
-calculated tier or assign a tier override, and start or continue SHIELD
+calculated tier or assign a tier override, revise the owner's answers (saved
+in the answer history under the manager's name, recalculating the suggested
+tier), and start or continue SHIELD
 assessments with required evidence. Manager SHIELD answers and evidence are
 saved through the API. New LAUNCH tier approvals remain open for seven days
 after the tier is calculated. Timed-out LAUNCH records remain visible in the
-manager queue with guidance to request a reassessment. Security Assessor and
+manager queue with guidance to request a reassessment. Admins (`/admin`) get a
+read-only, searchable view of all assets, LAUNCHes and SHIELDs. Security Assessor and
 Implementer portals are not part of this demo.
 
 The asset portfolio is a locally searchable table, so names, IDs, locations,

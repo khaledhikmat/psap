@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -58,6 +59,22 @@ func seed(ctx context.Context, db *sqlx.DB) error {
 		seeded = append(seeded, s.table.name)
 	}
 
+	// Databases seeded before the Admin role existed get the demo admin added.
+	var admins int
+	if err := tx.GetContext(ctx, &admins, "SELECT COUNT(*) FROM "+workersTable.name+" WHERE ID LIKE 'worker-admin%'"); err != nil {
+		return err
+	}
+	if admins == 0 {
+		for _, w := range seedWorkers() {
+			if strings.HasPrefix(w.ID, "worker-admin") {
+				if err := seedRows(ctx, tx, workersTable, []model.Worker{w}); err != nil {
+					return fmt.Errorf("seed admin: %w", err)
+				}
+			}
+		}
+		seeded = append(seeded, "workers (admin)")
+	}
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -98,6 +115,7 @@ func seedWorkers() []model.Worker {
 		{ID: "worker-manager-1", Name: "Priya Raman", Title: "VP Operations", Organization: "Operations"},
 		{ID: "worker-manager-2", Name: "Tom Okafor", Title: "Director of Infrastructure", Organization: "IT"},
 		{ID: "worker-reviewer-1", Name: "Elena Novak", Title: "Security Analyst", Organization: "Corporate Security"},
+		{ID: "worker-admin-1", Name: "Sam Patel", Title: "PSAP Administrator", Organization: "Corporate Security"},
 	}
 }
 

@@ -7,7 +7,16 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { get, post } from "./api";
+import { AdminPortal } from "./AdminPortal";
+import {
+  assetStateLabel,
+  formatDate,
+  launchStateLabel,
+  locationLabel,
+  shieldStateLabel,
+} from "./format";
 import type {
+  AnswerHistoryEntry,
   Asset,
   AssetRequest,
   Baseline,
@@ -25,7 +34,7 @@ import type {
 type View = "dashboard" | "asset" | "assessment";
 type DemoActor = {
   key: string;
-  role: "Business owner" | "Business manager";
+  role: "Business owner" | "Business manager" | "Admin";
   worker: Worker;
 };
 type Notice = { kind: "success" | "error" | "info"; text: string };
@@ -34,6 +43,16 @@ const emptyArray = <T,>(): T[] => [];
 const waitingForAnswers = "waiting-4-answers";
 const waitingForTierApproval = "waiting-4-tier-approval";
 const timedOut = "timedout";
+// Admins are workers whose ID starts with this prefix; no assets are assigned to them.
+const adminWorkerPrefix = "worker-admin";
+
+function portalPath(role?: DemoActor["role"]): string {
+  return role === "Business manager"
+    ? "/business-manager"
+    : role === "Admin"
+      ? "/admin"
+      : "/business-owner";
+}
 const launchesInReview = new Set(["answers-submitted", "waiting-4-tier-approval"]);
 const shieldsInProgress = new Set([
   "waiting-4-answers",
@@ -41,6 +60,10 @@ const shieldsInProgress = new Set([
   "waiting-4-evidences",
   "evidences-submitted",
 ]);
+
+function sameSelection(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id) => b.includes(id));
+}
 
 function mergeLaunchStates(
   refreshed: Launch[],
@@ -63,59 +86,6 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
 
-function assetStateLabel(state: string): string {
-  const labels: Record<string, string> = {
-    "pending-launch": "Needs LAUNCH",
-    "waiting-4-answers": "Owner input needed",
-    "answers-submitted": "Submitted for review",
-    "waiting-4-tier-approval": "Awaiting review",
-    launched: "Launch complete",
-    "pending-tier-validation": "Awaiting validation",
-    "pending-shield": "Shield assessment",
-    shielded: "Shield complete",
-    "pending-security-assessment": "Security assessment",
-    "pending-security-implementation": "Implementation",
-    implemented: "Implemented",
-  };
-  return labels[state] ?? state.replaceAll("-", " ");
-}
-
-function launchStateLabel(state: string): string {
-  const labels: Record<string, string> = {
-    "waiting-4-answers": "Owner input needed",
-    "answers-submitted": "Submitted for review",
-    "waiting-4-tier-approval": "Awaiting review",
-    "tier-validated": "Validated",
-    cancelled: "Replaced",
-    timedout: "Timed out",
-  };
-  return labels[state] ?? state.replaceAll("-", " ");
-}
-
-function shieldStateLabel(state: string): string {
-  const labels: Record<string, string> = {
-    "waiting-4-answers": "Answers in progress",
-    "answers-submitted": "Answers submitted",
-    "waiting-4-evidences": "Evidence in progress",
-    "evidences-submitted": "Finalizing",
-    completed: "Completed",
-    timedout: "Timed out",
-    cancelled: "Replaced",
-  };
-  return labels[state] ?? state.replaceAll("-", " ");
-}
-
-function locationLabel(asset: Asset): string {
-  return [
-    asset.campus,
-    asset.building,
-    asset.floor ? `Floor ${asset.floor}` : "",
-    asset.space,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 function assetDisplayState(
   asset: Asset,
   launches: Launch[],
@@ -131,17 +101,6 @@ function assetDisplayState(
   return latestLaunch && launchesInReview.has(latestLaunch.state)
     ? latestLaunch.state
     : activeLaunch?.state ?? asset.state;
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf())
-    ? value
-    : new Intl.DateTimeFormat(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }).format(date);
 }
 
 function safeEvidenceHref(value: string): string | undefined {
@@ -185,6 +144,7 @@ function App() {
     "launch",
   );
   const [assessmentReadOnly, setAssessmentReadOnly] = useState(false);
+  const [answerHistory, setAnswerHistory] = useState<AnswerHistoryEntry[]>([]);
   const [evidenceByQuestion, setEvidenceByQuestion] = useState<
     Record<string, Evidence[]>
   >({});
@@ -252,6 +212,10 @@ function App() {
   const demoActors = useMemo(() => {
     const actors: DemoActor[] = [];
     for (const worker of workers) {
+      if (worker.id.startsWith(adminWorkerPrefix)) {
+        actors.push({ key: `admin:${worker.id}`, role: "Admin", worker });
+        continue;
+      }
       if (assets.some((asset) => asset.businessOwner === worker.id)) {
         actors.push({
           key: `owner:${worker.id}`,
@@ -283,30 +247,30 @@ function App() {
   const activeWorkerId = activeActor?.worker.id ?? "";
   const isBusinessOwner = activeActor?.role === "Business owner";
   const isBusinessManager = activeActor?.role === "Business manager";
+  const isAdmin = activeActor?.role === "Admin";
 
   useEffect(() => {
-    document.title = isBusinessManager
-      ? "PSAP | Business Manager"
-      : "PSAP | Business Owner";
-  }, [isBusinessManager]);
+    document.title = isAdmin
+      ? "PSAP | Admin"
+      : isBusinessManager
+        ? "PSAP | Business Manager"
+        : "PSAP | Business Owner";
+  }, [isAdmin, isBusinessManager]);
 
   useEffect(() => {
     if (demoActors.length === 0) return;
     const requestedRole =
       location.pathname === "/business-manager"
         ? "Business manager"
-        : location.pathname === "/business-owner"
-          ? "Business owner"
-          : null;
+        : location.pathname === "/admin"
+          ? "Admin"
+          : location.pathname === "/business-owner"
+            ? "Business owner"
+            : null;
     if (requestedRole === null) {
       const actor = demoActors[0];
       setActorKey(actor.key);
-      navigate(
-        actor.role === "Business manager"
-          ? "/business-manager"
-          : "/business-owner",
-        { replace: true },
-      );
+      navigate(portalPath(actor.role), { replace: true });
       return;
     }
     const matchingActor = demoActors.find((actor) => actor.role === requestedRole);
@@ -321,11 +285,13 @@ function App() {
   const visibleAssets = useMemo(
     () =>
       assets.filter((asset) =>
-        isBusinessOwner
-          ? asset.businessOwner === activeWorkerId
-          : asset.businessManager === activeWorkerId,
+        isAdmin
+          ? true
+          : isBusinessOwner
+            ? asset.businessOwner === activeWorkerId
+            : asset.businessManager === activeWorkerId,
       ),
-    [activeWorkerId, assets, isBusinessOwner],
+    [activeWorkerId, assets, isAdmin, isBusinessOwner],
   );
   const visibleAssetIds = useMemo(
     () => new Set(visibleAssets.map((asset) => asset.id)),
@@ -370,22 +336,40 @@ function App() {
     [isBusinessManager, visibleLaunches],
   );
   const managerShieldQueue = useMemo(
-    () =>
-      isBusinessManager
-        ? shields
-            .filter(
-              (shield) =>
-                visibleAssetIds.has(shield.assetId) &&
-                shieldsInProgress.has(shield.state),
-            )
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        : [],
+    () => {
+      if (!isBusinessManager) return [];
+      // One task per asset: a replaced or terminated SHIELD can keep an in-progress state.
+      const newest = new Map<string, Shield>();
+      for (const shield of shields) {
+        if (
+          !visibleAssetIds.has(shield.assetId) ||
+          !shieldsInProgress.has(shield.state)
+        ) {
+          continue;
+        }
+        const current = newest.get(shield.assetId);
+        if (!current || shield.createdAt > current.createdAt) {
+          newest.set(shield.assetId, shield);
+        }
+      }
+      return [...newest.values()].sort((a, b) =>
+        b.createdAt.localeCompare(a.createdAt),
+      );
+    },
     [isBusinessManager, shields, visibleAssetIds],
   );
   const pendingLaunches = useMemo(
     () =>
       (isBusinessOwner ? visibleLaunches : [])
         .filter((launch) => launch.state === waitingForAnswers)
+        .filter(
+          (launch) =>
+            !visibleLaunches.some(
+              (other) =>
+                other.assetId === launch.assetId &&
+                other.createdAt > launch.createdAt,
+            ),
+        )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     [isBusinessOwner, visibleLaunches],
   );
@@ -483,13 +467,16 @@ function App() {
     setLaunchError("");
     setNotice(null);
     try {
-      const [categoryRows, questionRows, answerRows, savedRows] =
+      const [categoryRows, questionRows, answerRows, savedRows, historyRows] =
         await Promise.all([
           get<QuestionCategory[]>("/question-categories?type=launch"),
           get<Question[]>("/questions?categoryType=launch"),
           get<PredefinedAnswer[]>("/predefined-answers?type=launch"),
           get<UserAnswerDetail[]>(
             `/launches/${encodeURIComponent(launch.id)}/answers`,
+          ),
+          get<AnswerHistoryEntry[]>(
+            `/launches/${encodeURIComponent(launch.id)}/history`,
           ),
         ]);
       const orderedCategories = (categoryRows ?? []).sort((a, b) =>
@@ -508,6 +495,7 @@ function App() {
         );
       }
       setActiveLaunch(launch);
+      setAnswerHistory(historyRows ?? []);
       setTierOverride("");
       setAssessmentType("launch");
       setAssessmentReadOnly(readOnly);
@@ -530,6 +518,7 @@ function App() {
   async function loadShield(shield: Shield, readOnly = true) {
     setActiveLaunch(null);
     setActiveShield(null);
+    setAnswerHistory([]);
     setLaunchLoading(true);
     setLaunchError("");
     setNotice(null);
@@ -665,9 +654,39 @@ function App() {
   }
 
   async function beginShield(asset: Asset) {
-    const previousShieldId = shields
-      .filter((shield) => shield.assetId === asset.id)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id;
+    // The list on screen can be stale (a SHIELD starts on its own when a tier is validated),
+    // so check the live history before replacing anything.
+    let existing: Shield[];
+    try {
+      existing = (await get<Shield[]>(
+        `/assets/${encodeURIComponent(asset.id)}/shields`,
+      )) ?? [];
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: `SHIELD could not be started: ${errorText(error)}`,
+      });
+      return;
+    }
+    const newestFirst = [...existing].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+    const running = newestFirst.find((shield) =>
+      shieldsInProgress.has(shield.state),
+    );
+    if (
+      running &&
+      !window.confirm(
+        `A SHIELD assessment for ${asset.name} is already in progress (${shieldStateLabel(running.state)}).\n\nStarting a new one cancels it, and its answers and evidence stay in the history as a replaced assessment. Start a new SHIELD anyway?`,
+      )
+    ) {
+      await refreshDashboard();
+      await loadAsset(asset);
+      await loadShield(running, false);
+      return;
+    }
+
+    const previousShieldId = newestFirst[0]?.id;
     setNotice({ kind: "info", text: "Starting a SHIELD assessment…" });
     try {
       await post("/shields", { assetId: asset.id });
@@ -732,7 +751,55 @@ function App() {
       setView("dashboard");
       setNotice({
         kind: "success",
-        text: "LAUNCH tier validated. The assessment is now in the asset record.",
+        text: "LAUNCH tier validated. SHIELD starts automatically and will appear in your work queue shortly.",
+      });
+      // The SHIELD is started by the workflow after validation; pick it up without a manual refresh.
+      window.setTimeout(() => void refreshDashboard(), 2000);
+    } catch (error) {
+      setLaunchError(errorText(error));
+    } finally {
+      setLaunchSaving(false);
+    }
+  }
+
+  async function reviseLaunchAnswers() {
+    if (!activeLaunch || !managerCanValidate || revisedQuestions.length === 0) {
+      return;
+    }
+    const submissions = revisedQuestions.map((question) => ({
+      questionId: question.id,
+      predefinedAnswerIds: launchAnswers[question.id] ?? [],
+    }));
+    const previousTierId = activeLaunch.tierId;
+    setLaunchSaving(true);
+    setLaunchError("");
+    try {
+      const result = await post<{ tierId?: string }>(
+        `/launches/${encodeURIComponent(activeLaunch.id)}/revise-answers`,
+        { answers: submissions },
+      );
+      const revised = {
+        ...activeLaunch,
+        tierId: result.tierId || activeLaunch.tierId,
+      };
+      const apply = (rows: Launch[]) =>
+        rows.map((launch) => (launch.id === revised.id ? revised : launch));
+      setLaunches(apply);
+      setAssetLaunches(apply);
+      setActiveLaunch(revised);
+      setSavedAnswers(launchAnswers);
+      setAnswerHistory(
+        (await get<AnswerHistoryEntry[]>(
+          `/launches/${encodeURIComponent(activeLaunch.id)}/history`,
+        )) ?? [],
+      );
+      const newName = revised.tierId ? tierById.get(revised.tierId)?.name : "";
+      setNotice({
+        kind: "success",
+        text:
+          revised.tierId === previousTierId
+            ? "Your revisions were recorded in the answer history. The suggested tier is unchanged."
+            : `Your revisions were recorded in the answer history. The suggested tier is now ${newName || "updated"}.`,
       });
     } catch (error) {
       setLaunchError(errorText(error));
@@ -859,6 +926,7 @@ function App() {
   }
 
   function changeAnswer(question: Question, answerId: string) {
+    if (assessmentReadOnly && !managerCanValidate) return;
     setLaunchError("");
     setLaunchAnswers((current) => {
       const selected = current[question.id] ?? [];
@@ -971,6 +1039,35 @@ function App() {
     isBusinessManager &&
     activeLaunch !== null &&
     activeLaunch.state === waitingForTierApproval;
+  const answersLocked = assessmentReadOnly && !managerCanValidate;
+  const revisedQuestions = managerCanValidate
+    ? questions.filter(
+        (question) =>
+          !sameSelection(
+            launchAnswers[question.id] ?? [],
+            savedAnswers[question.id] ?? [],
+          ),
+      )
+    : [];
+  const launchOwnerId = assets.find(
+    (asset) => asset.id === activeLaunch?.assetId,
+  )?.businessOwner;
+  // Changes made by anyone but the business owner, i.e. a manager's revisions.
+  const revisionsByQuestion = useMemo(() => {
+    const byQuestion = new Map<string, AnswerHistoryEntry[]>();
+    for (const entry of answerHistory) {
+      if (entry.changedBy === launchOwnerId) continue;
+      byQuestion.set(entry.questionId, [
+        ...(byQuestion.get(entry.questionId) ?? []),
+        entry,
+      ]);
+    }
+    return byQuestion;
+  }, [answerHistory, launchOwnerId]);
+  const workerName = (id: string) =>
+    workers.find((worker) => worker.id === id)?.name ?? id;
+  const answerText = (id?: string) =>
+    predefinedAnswers.find((answer) => answer.id === id)?.text ?? "";
 
   useEffect(() => {
     if (view !== "assessment" || categories.length < 2) return;
@@ -1012,11 +1109,7 @@ function App() {
                   (actor) => actor.key === event.target.value,
                 );
                 setActorKey(event.target.value);
-                navigate(
-                  nextActor?.role === "Business manager"
-                    ? "/business-manager"
-                    : "/business-owner",
-                );
+                navigate(portalPath(nextActor?.role));
                 setView("dashboard");
                 setSelectedAsset(null);
                 setActiveLaunch(null);
@@ -1083,7 +1176,18 @@ function App() {
           </div>
         )}
 
-        {!isLoading && !loadError && view === "dashboard" && (
+        {!isLoading && !loadError && view === "dashboard" && isAdmin && (
+          <AdminPortal
+            assets={assets}
+            launches={launches}
+            shields={shields}
+            workers={workers}
+            tiers={tiers}
+            onOpenAsset={(asset) => void loadAsset(asset)}
+          />
+        )}
+
+        {!isLoading && !loadError && view === "dashboard" && !isAdmin && (
           <section aria-labelledby="dashboard-title">
             <div className="page-heading heading-row">
               <div>
@@ -1505,16 +1609,24 @@ function App() {
                               Continue LAUNCH <span aria-hidden="true">→</span>
                             </button>
                           ) : isBusinessManager && activeShield ? (
-                            <button
-                              className="asset-table-action"
-                              onClick={() => {
-                                void loadAsset(asset).then(() =>
-                                  loadShield(activeShield, false),
-                                );
-                              }}
-                            >
-                              Continue SHIELD <span aria-hidden="true">→</span>
-                            </button>
+                            <span className="asset-table-actions">
+                              <button
+                                className="asset-table-action"
+                                onClick={() => {
+                                  void loadAsset(asset).then(() =>
+                                    loadShield(activeShield, false),
+                                  );
+                                }}
+                              >
+                                Continue SHIELD <span aria-hidden="true">→</span>
+                              </button>
+                              <button
+                                className="asset-table-action asset-table-action-secondary"
+                                onClick={() => void beginShield(asset)}
+                              >
+                                Start new SHIELD
+                              </button>
+                            </span>
                           ) : isBusinessManager ? (
                             latestLaunch?.state === "tier-validated" ||
                             asset.state === "pending-shield" ||
@@ -1626,14 +1738,22 @@ function App() {
                       selectedAsset.state === "pending-shield" ||
                       selectedAsset.state === "shielded";
                     return activeShield ? (
-                      <button
-                        className="button button-primary"
-                        onClick={() =>
-                          void loadShield(activeShield, false)
-                        }
-                      >
-                        Continue SHIELD
-                      </button>
+                      <>
+                        <button
+                          className="button button-secondary"
+                          onClick={() => void beginShield(selectedAsset)}
+                        >
+                          Start new SHIELD
+                        </button>
+                        <button
+                          className="button button-primary"
+                          onClick={() =>
+                            void loadShield(activeShield, false)
+                          }
+                        >
+                          Continue SHIELD
+                        </button>
+                      </>
                     ) : canStartShield ? (
                       <button
                         className="button button-primary"
@@ -1912,7 +2032,7 @@ function App() {
                     </h1>
                     <p>
                       {managerCanValidate
-                        ? "Review the submitted answers and confirm the calculated tier or select an override."
+                        ? "Review the submitted answers. You can correct an answer if needed (every change is recorded in the answer history), then confirm the calculated tier or select an override."
                         : assessmentReadOnly
                         ? `Viewing saved ${assessmentType.toUpperCase()} answers${activeLaunch ? ` · ${launchStateLabel(activeLaunch.state)}` : activeShield ? ` · ${shieldStateLabel(activeShield.state)}` : ""}. This historical assessment cannot be changed.`
                         : assessmentType === "shield"
@@ -2008,9 +2128,11 @@ function App() {
                           </span>
                           <span className="optional-label">
                             {assessmentType === "launch"
-                              ? assessmentReadOnly
-                                ? "Recorded business answer"
-                                : "Business owner input"
+                              ? managerCanValidate
+                                ? "Business owner answer · you may revise"
+                                : assessmentReadOnly
+                                  ? "Recorded business answer"
+                                  : "Business owner input"
                               : "Recorded exposure rating"}
                           </span>
                         </div>
@@ -2049,7 +2171,7 @@ function App() {
                                         className={`answer-option ${
                                           checked ? "answer-selected" : ""
                                         } ${
-                                          assessmentReadOnly
+                                          answersLocked
                                             ? "read-only-option"
                                             : ""
                                         }`}
@@ -2066,7 +2188,7 @@ function App() {
                                           name={question.id}
                                           value={answer.id}
                                           checked={checked}
-                                          disabled={assessmentReadOnly}
+                                          disabled={answersLocked}
                                           onChange={() =>
                                             changeAnswer(question, answer.id)
                                           }
@@ -2088,6 +2210,43 @@ function App() {
                                     );
                                   })}
                                 </div>
+                                {assessmentType === "launch" &&
+                                  assessmentReadOnly &&
+                                  (revisionsByQuestion.get(question.id) ?? [])
+                                    .length > 0 && (
+                                    <ul
+                                      className="answer-history"
+                                      aria-label="Answer changes"
+                                    >
+                                      {(
+                                        revisionsByQuestion.get(question.id) ??
+                                        []
+                                      ).map((entry) => (
+                                        <li key={entry.id}>
+                                          <strong>
+                                            {workerName(entry.changedBy)}
+                                          </strong>{" "}
+                                          {entry.previousPredefinedAnswerId &&
+                                          entry.newPredefinedAnswerId
+                                            ? "changed"
+                                            : entry.newPredefinedAnswerId
+                                              ? "added"
+                                              : "removed"}{" "}
+                                          {entry.previousPredefinedAnswerId &&
+                                            `“${answerText(entry.previousPredefinedAnswerId)}”`}
+                                          {entry.previousPredefinedAnswerId &&
+                                            entry.newPredefinedAnswerId &&
+                                            " → "}
+                                          {entry.newPredefinedAnswerId &&
+                                            `“${answerText(entry.newPredefinedAnswerId)}”`}
+                                          <span>
+                                            {" "}
+                                            · {formatDate(entry.changedAt)}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
                                 {assessmentType === "shield" && (
                                   !assessmentReadOnly &&
                                   isBusinessManager &&
@@ -2263,6 +2422,41 @@ function App() {
                       </div>
                     )}
                     {managerCanValidate && activeLaunch && (
+                      <>
+                      {revisedQuestions.length > 0 && (
+                        <div className="revision-bar" role="status">
+                          <div>
+                            <strong>
+                              {revisedQuestions.length}{" "}
+                              {revisedQuestions.length === 1
+                                ? "answer"
+                                : "answers"}{" "}
+                              changed
+                            </strong>
+                            <p>
+                              Save to record your changes in the answer history
+                              and recalculate the suggested tier. Validate the
+                              tier after saving.
+                            </p>
+                          </div>
+                          <div className="revision-actions">
+                            <button
+                              className="button button-secondary"
+                              onClick={() => setLaunchAnswers(savedAnswers)}
+                              disabled={launchSaving}
+                            >
+                              Discard changes
+                            </button>
+                            <button
+                              className="button button-primary"
+                              onClick={() => void reviseLaunchAnswers()}
+                              disabled={launchSaving}
+                            >
+                              {launchSaving ? "Saving…" : "Save revisions"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       <div className="manager-approval">
                         <div>
                           <div className="eyebrow">TIER VALIDATION</div>
@@ -2298,11 +2492,17 @@ function App() {
                         <button
                           className="button button-primary"
                           onClick={() => void validateLaunchTier()}
-                          disabled={launchSaving}
+                          disabled={launchSaving || revisedQuestions.length > 0}
+                          title={
+                            revisedQuestions.length > 0
+                              ? "Save or discard your answer changes first"
+                              : undefined
+                          }
                         >
                           {launchSaving ? "Validating…" : "Validate tier"}
                         </button>
                       </div>
+                      </>
                     )}
                     {assessmentType === "shield" &&
                       !assessmentReadOnly &&
@@ -2363,8 +2563,10 @@ function App() {
                       </p>
                     )}
                     <p className="privacy-note">
-                      {assessmentReadOnly
-                        ? "This saved assessment is read-only. Use Back to asset details to return to the assessment history."
+                      {managerCanValidate
+                        ? "Changes you make to the owner's answers are saved under your name in the answer history; the owner's original answers are kept."
+                        : assessmentReadOnly
+                          ? "This saved assessment is read-only. Use Back to asset details to return to the assessment history."
                         : assessmentType === "shield"
                           ? activeShield?.state === "waiting-4-evidences"
                             ? "Provide a description, a source link, or both for every required question. You can save partial evidence before completing SHIELD."

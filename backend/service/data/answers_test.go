@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/khaledhikmat/psap/model"
@@ -103,5 +104,34 @@ func TestValidateAnswers(t *testing.T) {
 	}
 	if err := answers.Validate(questions, predefined, ok); err != nil {
 		t.Errorf("valid submission rejected: %v", err)
+	}
+}
+
+func TestSeedAddsAdminToExistingDatabase(t *testing.T) {
+	ctx := context.Background()
+	file := filepath.Join(t.TempDir(), "test.db")
+	svc := NewSQLLite(ctx, fileConfig{file})
+	if svc == nil {
+		t.Fatal("unable to open database")
+	}
+	svc.Finalize()
+
+	count := func() int {
+		s := NewSQLLite(ctx, fileConfig{file})
+		defer s.Finalize()
+		workers, err := s.RetrieveWorkers(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, w := range workers {
+			if strings.HasPrefix(w.ID, "worker-admin") {
+				n++
+			}
+		}
+		return n
+	}
+	if got := count(); got != 1 {
+		t.Fatalf("admins = %d, want 1 (reopening must not duplicate)", got)
 	}
 }

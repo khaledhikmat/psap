@@ -9,6 +9,7 @@ There are the following actors on the system:
 - Business Managers: facility managers who assess correct laucnhes and approves them. They are also responsible to shield rooms.
 - Security Assessors: business analysts who work for the STAT team. The tier and requirements set what is mandatory. STAT picks the control type, guided by SHIELD drivers.
 - Security Implementers: business analysts who install technology in rooms. Usually they are part of the STAT team and normally the same people as security assessors.
+- Admins: view all asstes, launches, shields, etc.
 - System: coordinates, orchestrates and persists to database.
 
 ### Process
@@ -225,4 +226,18 @@ But since we have not implemented the last 2 actors, let us leave them off.
 - Show a list of pending launches they need to complete. 
 - Pending launches show the question categories on the left and an indicator whether they are completed or not. Once a category is clicked, the questions do open and the business owner can answer them as needed. Please make the navigation among the different categories simple and intuitive (perhaps allow arrow keys to navigate in addition to clicks). 
 - Business Owners can view the detail of the completed or in-progress assets, associated tier, associated launches and associated guides. 
+
+##### Business Managers
+
+- Show a list of assets they mnager, a way to request a new asset and a way to re-assess existing ones.
+- Show a list of pending shields they need to complete. 
+- Show a list of pending launches they need to validate. 
+- Pending launches show the question categories on the left and an indicator whether they are completed or not. Once a category is clicked, the questions do open and the business owner can answer them as needed. Please make the navigation among the different categories simple and intuitive (perhaps allow arrow keys to navigate in addition to clicks). 
+- Business Owners can view the detail of the completed or in-progress assets, associated tier, associated launches and associated guides. 
+
+
+##### Admins
+
+- Show a searchable list of all assets: by location, by business owner and/or by business manager.
+- Show a searchable list of all launches sorted by last update DESC: by asset location, by business owner and/or by business manager. 
 

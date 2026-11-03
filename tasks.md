@@ -1,0 +1,4 @@
+- [ ] Business Owners: should it always allow bsuiness owners to re-shield even if there is one in progress. Curently it is asking for permission.
+- [ ] Version Workers
+- [ ] We probably need an admin role to see all assets, all launches and all shields. Dashboard would be good.
+- [ ] Link to the marketing site.

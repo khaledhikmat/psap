@@ -145,6 +145,40 @@ func (c *Controller) finalizeLaunchAnswers(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"message": "answers finalized"})
 }
 
+type reviseLaunchAnswersRequest struct {
+	Answers []model.AnswerSubmission `json:"answers" binding:"required"`
+}
+
+// reviseLaunchAnswers lets the business manager change the owner's answers while the tier
+// awaits approval. The response carries the recalculated tier.
+func (c *Controller) reviseLaunchAnswers(ctx *gin.Context) {
+	launchID := ctx.Param("id")
+
+	var req reviseLaunchAnswersRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		newError(ctx, http.StatusBadRequest, err)
+		return
+	}
+
+	launch, err := c.Svcs.DataSvc.RetrieveLaunchByID(ctx, launchID)
+	if err != nil {
+		if err == data.ErrNotFound {
+			newError(ctx, http.StatusNotFound, err)
+			return
+		}
+		newError(ctx, http.StatusInternalServerError, err)
+		return
+	}
+
+	tierID, err := c.Svcs.FlowSvc.ReviseLaunchAnswers(ctx, launch.AssetID, req.Answers)
+	if err != nil {
+		newError(ctx, submissionErrorStatus(err), err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "answers revised", "tierId": tierID})
+}
+
 type validateLaunchTierRequest struct {
 	TierID string `json:"tierId"`
 }
