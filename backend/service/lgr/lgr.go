@@ -21,7 +21,7 @@ const (
 )
 
 var Logger *slog.Logger
-var appName = "stream-processor"
+var appName = "psap"
 var appVer = "0.2.0"
 
 type stackFrame struct {

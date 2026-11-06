@@ -2,6 +2,7 @@ package minions
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -22,22 +23,32 @@ type MinionState struct {
 }
 
 type MinionRequest struct {
-	Command string
-	Args    []any
+	ID         string
+	BusinessID string
+	ManagerID  string
+	Kind       string
+	Command    string
+	Args       []any
 }
 
-type MinionResponse struct {
-	ID        string
-	ManagerID string
-	Kind      string
-	Command   string
-	Result    map[string]any
+func (r MinionRequest) Marshall() string {
+	return r.ID + ":" + r.BusinessID + ":" + r.ManagerID + ":" + r.Kind + ":" + r.Command
+}
+
+func (r MinionRequest) Unmarshall(json string) MinionRequest {
+	parts := strings.Split(json, ":")
+	return MinionRequest{
+		ID:         parts[0],
+		BusinessID: parts[1],
+		ManagerID:  parts[2],
+		Kind:       parts[3],
+		Command:    parts[4],
+	}
 }
 
 type IMinion interface {
 	Start(canx context.Context) error
 	State() MinionState
-	Query(req MinionRequest) (MinionResponse, error)
 	Signal(payload MinionRequest) error
-	Close()
+	Stop()
 }

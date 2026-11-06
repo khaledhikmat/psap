@@ -67,6 +67,7 @@ var modeProcessors = map[string]mode.Processor{
 	"flowworker":      mode.Worker,
 	"multiflowworker": mode.MultiWorker,
 	"cli":             mode.CLI,
+	"minionmanager":   mode.MinionManager,
 }
 
 var startTime = time.Now()
