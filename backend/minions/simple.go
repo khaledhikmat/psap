@@ -42,7 +42,7 @@ type simpleMinion struct {
 	state SimpleMinionState
 }
 
-func NewSimpleMinion(id, managerID, kind string, svcs service.ServicesFactory) ISimpleMinion {
+func NewSimpleMinion(id, managerID, kind string, svcs service.ServicesFactory, balanace float64) ISimpleMinion {
 	s := SimpleMinionState{
 		ID:        id,
 		ManagerID: managerID,
@@ -50,7 +50,7 @@ func NewSimpleMinion(id, managerID, kind string, svcs service.ServicesFactory) I
 		StartTime: new(time.Time),
 		EndTime:   new(time.Time),
 		Timers:    make(map[time.Time]MinionTimerProcessor),
-		Balance:   0.0,
+		Balance:   balanace,
 	}
 
 	minion := &simpleMinion{

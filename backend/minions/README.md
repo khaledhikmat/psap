@@ -32,3 +32,4 @@
 - minion follow the overriding style of syncer.
 - the manager dequeues and maintains database connectivity. Once itr delivers the minion request, it considers it processed. 
 - How would the client know the possible commands on a workflow? Using its kind?
+- How do we handle the initial input?
