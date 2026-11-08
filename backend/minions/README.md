@@ -33,3 +33,8 @@
 - the manager dequeues and maintains database connectivity. Once itr delivers the minion request, it considers it processed. 
 - How would the client know the possible commands on a workflow? Using its kind?
 - How do we handle the initial input?
+- Clients must pass a unique UUID IDs so there will never clashes 
+
+### Approach
+
+Maybe I should work it out without worrying about location transparency and durability. 

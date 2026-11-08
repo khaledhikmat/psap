@@ -21,7 +21,8 @@ type SimpleMinionState struct {
 	Balance float64
 }
 
-func (a SimpleMinionState) Load(id, managerID, kind string, svcs service.ServicesFactory) error {
+// Load must load the state using the ID and kind, excluding the manager ID since it may have changed
+func (a SimpleMinionState) Load(ID, kind string, svcs service.ServicesFactory) error {
 	// Implement the execution logic for the simple minion
 	// This could involve processing the arguments and updating the state
 	return nil
@@ -42,15 +43,16 @@ type simpleMinion struct {
 	state SimpleMinionState
 }
 
-func NewSimpleMinion(id, managerID, kind string, svcs service.ServicesFactory, balanace float64) ISimpleMinion {
+func NewSimpleMinion(ID, managerID string, svcs service.ServicesFactory, balance float64) ISimpleMinion {
 	s := SimpleMinionState{
-		ID:        id,
-		ManagerID: managerID,
-		Kind:      kind,
-		StartTime: new(time.Time),
-		EndTime:   new(time.Time),
-		Timers:    make(map[time.Time]MinionTimerProcessor),
-		Balance:   balanace,
+		ID:           ID,
+		ManagerID:    managerID,
+		Kind:         "simple",
+		StartTime:    new(time.Time),
+		EndTime:      new(time.Time),
+		Timers:       make(map[time.Time]MinionTimerProcessor),
+		SignalsCount: 0,
+		Balance:      balance,
 	}
 
 	minion := &simpleMinion{
@@ -65,11 +67,16 @@ func (a *simpleMinion) Start(canx context.Context) error {
 	a.inbox = make(chan MinionRequest, 64) // Mailbox
 	a.done = make(chan bool)
 
-	err := a.state.Load(a.state.ID, a.state.ManagerID, a.state.Kind, a.svcs)
+	// Load the existing state if available, otherwise keep the initialized start and end times
+	// Exclude the manager ID because the manager may have been changed!!!
+	managerID := a.state.ManagerID
+	err := a.state.Load(a.state.ID, a.state.Kind, a.svcs)
 	if err != nil {
 		*a.state.StartTime = time.Now()
 		a.state.EndTime = new(time.Time)
 	}
+	// Restore the manager ID after loading the state
+	a.state.ManagerID = managerID
 
 	timer1Proc := func(ctx context.Context, t time.Time) (bool, time.Duration) {
 		// Default timer processor, can be customized
@@ -112,6 +119,8 @@ func (a *simpleMinion) run() {
 		a.state.Save(a.svcs)
 	}()
 
+	a.state.Running = true
+
 	// Run initial activities
 	a.runInitialActivities()
 
@@ -141,7 +150,7 @@ func (a *simpleMinion) run() {
 			// Persist every minute
 			a.state.Save(a.svcs)
 		case request, ok := <-a.inbox:
-			a.state.CommandsCount++
+			a.state.SignalsCount++
 
 			if !ok {
 				goto resume
@@ -174,6 +183,7 @@ func (a *simpleMinion) run() {
 
 resume:
 	a.runFinalActivities()
+	a.state.Running = false
 }
 
 func (a *simpleMinion) runInitialActivities() {
@@ -194,6 +204,9 @@ func (a *simpleMinion) GetState() SimpleMinionState {
 
 func (a *simpleMinion) Signal(request MinionRequest) error {
 	fmt.Printf("Signaling request: %+v\n", request)
+	if !a.state.Running {
+		return fmt.Errorf("minion is not running")
+	}
 	a.inbox <- request
 	return nil
 }

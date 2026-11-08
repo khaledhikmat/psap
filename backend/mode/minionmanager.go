@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/khaledhikmat/psap/service"
@@ -20,28 +19,41 @@ func MinionManager(canxCtx context.Context, pod string, svcs service.ServicesFac
 		slog.String("pod", pod),
 	)
 
-	simpleWF := minions.NewSimpleMinion("workflow-id", "manager-id", "simple", svcs)
-	simpleWF.Start(canxCtx)
-	defer simpleWF.Stop()
+	// Keep track of active workflows in memory so we can enumerate and manage them
+	workflows := make(map[string]minions.ISimpleMinion)
 
-	var wg sync.WaitGroup
+	defer func() {
+		// Enumerate active workflows
+		for id, wf := range workflows {
+			fmt.Printf("Workflow ID: %s, Balance: %v\n", id, wf.GetState().Balance)
+			wf.Stop()
+		}
+	}()
 
-	// Concurrently deposit from 10 goroutines without mutexes
-	for i := range 10 {
-		index := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if index%2 == 0 {
-				simpleWF.Deposit(100.00)
-			} else {
-				simpleWF.Withdraw(50.00)
-			}
-		}()
-	}
+	// Dequeues workflow requests and manages minion lifecycles
 
-	wg.Wait()
-	fmt.Printf("Final state: %v\n", simpleWF.GetState().Balance)
+	// Workflow IDs must be unique across the system - must be UUID or time-based
+	simpleWF1 := minions.NewSimpleMinion("workflow-id-1", "manager-id", svcs, 100)
+	simpleWF2 := minions.NewSimpleMinion("workflow-id-2", "manager-id", svcs, 100)
+	simpleWF3 := minions.NewSimpleMinion("workflow-id-3", "manager-id", svcs, 100)
+	workflows["workflow-id-1"] = simpleWF1
+	workflows["workflow-id-2"] = simpleWF2
+	workflows["workflow-id-3"] = simpleWF3
+	simpleWF1.Start(canxCtx)
+	simpleWF2.Start(canxCtx)
+	simpleWF3.Start(canxCtx)
+
+	// Deposit into all workflows
+	simpleWF1.Deposit(50.00)
+	simpleWF2.Deposit(50.00)
+	simpleWF3.Deposit(50.00)
+
+	// Withdraw from all workflows
+	simpleWF1.Withdraw(50.00)
+	simpleWF2.Withdraw(50.00)
+	simpleWF3.Withdraw(50.00)
+
+	// Keep the manager running for a while to allow workflows to timeout and complete their operations
 	time.Sleep(20 * time.Second)
 
 	return nil

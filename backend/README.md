@@ -57,6 +57,9 @@ MODE_PROC=cli go run . shield-happy   # shield: submit answers → submit eviden
 
 # terminal 4 - this an API Layer
 MODE_PROC=httpserver go run . 
+
+# terminal 5 - this is the minion manager
+MODE_PROC=minionmanager go run . 
 ```
 
 ## Database Access
