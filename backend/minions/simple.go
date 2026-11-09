@@ -219,6 +219,9 @@ func (a *simpleMinion) Stop() {
 }
 
 // Convenient helper to execute a command with arbitrary arguments
+// They still have to be signaled to perform the action via the Signal method
+// in order to avoid race conditions and ensure proper lifecycle management of the minion.
+
 func (a *simpleMinion) Deposit(amount float64) error {
 	p := MinionRequest{
 		ID:        a.state.ID,
