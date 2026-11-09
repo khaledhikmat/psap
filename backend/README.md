@@ -14,6 +14,7 @@ UI:      http://localhost:8233
 Metrics: http://localhost:57058/metrics
 
 # terminal 2 - flow worker
+cd backend
 MODE_PROC=flowworker go run .
 or
 MODE_PROC=multiflowworker go run .
