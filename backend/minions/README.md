@@ -38,3 +38,27 @@
 ### Approach
 
 Maybe I should work it out without worrying about location transparency and durability. 
+
+### Writing a minion
+
+`Minion[S]` (`minion.go`) owns the lifecycle: mailbox, timers, periodic saves, start and stop. A kind of minion
+supplies its state type `S` and overrides processors, as `simple.go` does:
+
+```go
+type MyState struct {
+    MinionState        // gives S the Base() method the base minion needs
+    Balance float64
+}
+
+m := NewMinion(id, managerID, "my", svcs, &MyState{}) // S is the pointer type
+m.OnSignal = func(ctx context.Context, s *MyState, req MinionRequest) error { ... }
+m.OnLoad = ...      // return ErrNoState when nothing is saved yet
+m.OnSave = ...
+m.OnStart = func(mn *Minion[*MyState]) { mn.RegisterTimer(...) }
+m.OnRunInitialActivities / m.OnRunFinalActivities = ...
+```
+
+- Processors run one at a time on the minion's goroutine and may use the state freely. Outside code uses
+  `Signal`, `State()` (a snapshot of the base state) or `View(fn)` (read access to the whole `S`).
+- Override processors after `NewMinion` and before `Start`.
+- The final activities and last save get a context that is not cancelled, so they can still use the database.

@@ -9,6 +9,8 @@ import (
 	"github.com/khaledhikmat/psap/service"
 )
 
+const simpleKind = "simple"
+
 type ISimpleMinion interface {
 	IMinion
 	Deposit(amount float64) error
@@ -16,70 +18,74 @@ type ISimpleMinion interface {
 	GetState() SimpleMinionState
 }
 
+// SimpleMinionState is the simple minion's T: the base state plus a balance.
 type SimpleMinionState struct {
 	MinionState
 	Balance float64
 }
 
-// Load must load the state using the ID and kind, excluding the manager ID since it may have changed
-func (a SimpleMinionState) Load(ID, kind string, svcs service.ServicesFactory) error {
-	// Implement the execution logic for the simple minion
-	// This could involve processing the arguments and updating the state
-	return nil
-}
-
-func (a SimpleMinionState) Save(svcs service.ServicesFactory) error {
-	// Implement the save logic for the simple minion state
-	// This could involve persisting the state to a database or other storage
-	return nil
-}
-
-// SimpleMinion represents a basic minion with a state
+// simpleMinion is a Minion[*SimpleMinionState] that overrides the processors it cares about.
+// Embedding provides Start, State, Signal and Stop.
 type simpleMinion struct {
-	svcs  service.ServicesFactory
-	canx  context.Context
-	done  chan bool
-	inbox chan MinionRequest
-	state SimpleMinionState
+	*Minion[*SimpleMinionState]
 }
 
 func NewSimpleMinion(ID, managerID string, svcs service.ServicesFactory, balance float64) ISimpleMinion {
-	s := SimpleMinionState{
-		ID:           ID,
-		ManagerID:    managerID,
-		Kind:         "simple",
-		StartTime:    new(time.Time),
-		EndTime:      new(time.Time),
-		Timers:       make(map[time.Time]MinionTimerProcessor),
-		SignalsCount: 0,
-		Balance:      balance,
-	}
-
-	minion := &simpleMinion{
-		svcs:  svcs,
-		state: s,
-	}
-	return minion
+	m := NewMinion(ID, managerID, simpleKind, svcs, &SimpleMinionState{Balance: balance})
+	m.OnLoad = loadSimple
+	m.OnSave = saveSimple
+	m.OnSignal = handleSimpleRequest
+	m.OnStart = registerSimpleTimers
+	return &simpleMinion{Minion: m}
 }
 
-func (a *simpleMinion) Start(canx context.Context) error {
-	a.canx = canx
-	a.inbox = make(chan MinionRequest, 64) // Mailbox
-	a.done = make(chan bool)
+// loadSimple must load the state using the ID and kind, excluding the manager ID since it may
+// have changed (Start restores it).
+func loadSimple(ctx context.Context, state *SimpleMinionState) error {
+	// Implement the load logic for the simple minion state, e.g. read it from the database
+	// by state.ID and state.Kind and return ErrNoState if it is not there.
+	return ErrNoState
+}
 
-	// Load the existing state if available, otherwise keep the initialized start and end times
-	// Exclude the manager ID because the manager may have been changed!!!
-	managerID := a.state.ManagerID
-	err := a.state.Load(a.state.ID, a.state.Kind, a.svcs)
-	if err != nil {
-		*a.state.StartTime = time.Now()
-		a.state.EndTime = new(time.Time)
+func saveSimple(ctx context.Context, state *SimpleMinionState) error {
+	// Implement the save logic for the simple minion state, e.g. persist it to the database.
+	return nil
+}
+
+func handleSimpleRequest(ctx context.Context, state *SimpleMinionState, req MinionRequest) error {
+	switch req.Command {
+	case "Deposit":
+		amount, err := amountArg(req)
+		if err != nil {
+			return err
+		}
+		state.Balance += amount
+	case "Withdraw":
+		amount, err := amountArg(req)
+		if err != nil {
+			return err
+		}
+		state.Balance -= amount
+	default:
+		return fmt.Errorf("unknown command %q", req.Command)
 	}
-	// Restore the manager ID after loading the state
-	a.state.ManagerID = managerID
+	return nil
+}
 
+// amountArg reads the amount, passed as a string in the first argument.
+func amountArg(req MinionRequest) (float64, error) {
+	if len(req.Args) == 0 {
+		return 0, fmt.Errorf("%s needs an amount", req.Command)
+	}
+	amount, ok := req.Args[0].(string)
+	if !ok {
+		return 0, fmt.Errorf("%s amount %v is not a string", req.Command, req.Args[0])
+	}
+	return strconv.ParseFloat(amount, 64)
+}
+
+func registerSimpleTimers(m *Minion[*SimpleMinionState]) {
 	timer1Proc := func(ctx context.Context, t time.Time) (bool, time.Duration) {
-		// Default timer processor, can be customized
 		// Do stuff
 		// Do not reschedule this timer
 		fmt.Printf("Timer1 triggered at: %v\n", t)
@@ -87,159 +93,44 @@ func (a *simpleMinion) Start(canx context.Context) error {
 	}
 
 	timer2Proc := func(ctx context.Context, t time.Time) (bool, time.Duration) {
-		// Default timer processor, can be customized
 		// Do stuff
 		// re-schedule it for later
 		fmt.Printf("Timer2 triggered at: %v\n", t)
 		return true, 2 * time.Second
 	}
 
-	// Register timers if any
-	a.registerTimer(time.Now().Add(1*time.Second), timer1Proc)
-	a.registerTimer(time.Now().Add(2*time.Second), timer2Proc)
-
-	go a.run()
-	return nil
-}
-
-func (a *simpleMinion) registerTimer(t time.Time, processor MinionTimerProcessor) {
-	a.state.Timers[t] = processor
-}
-
-// Sequential message loop (the actor's lifecycle)
-func (a *simpleMinion) run() {
-	defer func() {
-		if a.inbox != nil {
-			close(a.inbox)
-		}
-		if a.done != nil {
-			close(a.done)
-		}
-
-		a.state.Save(a.svcs)
-	}()
-
-	a.state.Running = true
-
-	// Run initial activities
-	a.runInitialActivities()
-
-	for {
-		select {
-		case <-a.canx.Done():
-			goto resume
-		case <-a.done:
-			goto resume
-		case <-time.After(time.Duration(3 * time.Second)):
-			// Timeout to handle timers, heartbeat, etc
-			// Determine which timers that need to be triggered
-			now := time.Now()
-			fmt.Printf("Timeout occurred at: %v\n", now)
-			for t, processor := range a.state.Timers {
-				if t.Before(now) || t.Equal(now) {
-					a.state.TimerInvocationsCount++
-					rerun, duration := processor(a.canx, t)
-					delete(a.state.Timers, t)
-					if rerun && duration > 0 {
-						fmt.Printf("Rescheduling timer for: %v\n", now.Add(duration))
-						a.registerTimer(now.Add(duration), processor)
-					}
-				}
-			}
-
-			// Persist every minute
-			a.state.Save(a.svcs)
-		case request, ok := <-a.inbox:
-			a.state.SignalsCount++
-
-			if !ok {
-				goto resume
-			}
-			switch request.Command {
-			case "Deposit":
-				// Assuming Args[0] contains the amount as string
-				// Convert to float64 and add to balance
-				// Error handling omitted for brevity
-				fmt.Printf("Deposit request: %+v\n", request)
-				if len(request.Args) > 0 {
-					amount, _ := request.Args[0].(string)
-					fmt.Printf("Deposit amount: %s\n", amount)
-					amountFloat, _ := strconv.ParseFloat(amount, 64)
-					a.state.Balance += amountFloat
-				}
-			case "Withdraw":
-				// Assuming Args[0] contains the amount as string
-				// Convert to float64 and subtract from balance
-				// Error handling omitted for brevity
-				fmt.Printf("Withdraw request: %+v\n", request)
-				if len(request.Args) > 0 {
-					amount, _ := request.Args[0].(string)
-					amountFloat, _ := strconv.ParseFloat(amount, 64)
-					a.state.Balance -= amountFloat
-				}
-			}
-		}
-	}
-
-resume:
-	a.runFinalActivities()
-	a.state.Running = false
-}
-
-func (a *simpleMinion) runInitialActivities() {
-	// Placeholder for initial activities
-}
-
-func (a *simpleMinion) runFinalActivities() {
-	// Placeholder for final activities
-}
-
-func (a *simpleMinion) State() MinionState {
-	return a.state.MinionState
+	m.RegisterTimer(time.Now().Add(1*time.Second), timer1Proc)
+	m.RegisterTimer(time.Now().Add(2*time.Second), timer2Proc)
 }
 
 func (a *simpleMinion) GetState() SimpleMinionState {
-	return a.state
+	var state SimpleMinionState
+	a.View(func(s *SimpleMinionState) {
+		state = *s
+		state.MinionState = cloneBase(&s.MinionState)
+	})
+	return state
 }
 
-func (a *simpleMinion) Signal(request MinionRequest) error {
-	fmt.Printf("Signaling request: %+v\n", request)
-	if !a.state.Running {
-		return fmt.Errorf("minion is not running")
-	}
-	a.inbox <- request
-	return nil
-}
-
-func (a *simpleMinion) Stop() {
-	// Only upon close, set the end time. This indicates that the minion has finished its lifecycle.
-	*a.state.EndTime = time.Now()
-	fmt.Printf("Stopping minion: %+v\n", a.state)
-	a.done <- true
-}
-
-// Convenient helper to execute a command with arbitrary arguments
+// Convenient helpers to execute a command with arbitrary arguments
 // They still have to be signaled to perform the action via the Signal method
 // in order to avoid race conditions and ensure proper lifecycle management of the minion.
 
 func (a *simpleMinion) Deposit(amount float64) error {
-	p := MinionRequest{
-		ID:        a.state.ID,
-		ManagerID: a.state.ManagerID,
-		Kind:      a.state.Kind,
-		Command:   "Deposit",
-		Args:      []any{fmt.Sprintf("%f", amount)},
-	}
-	return a.Signal(p)
+	return a.Signal(a.request("Deposit", amount))
 }
 
 func (a *simpleMinion) Withdraw(amount float64) error {
-	p := MinionRequest{
-		ID:        a.state.ID,
-		ManagerID: a.state.ManagerID,
-		Kind:      a.state.Kind,
-		Command:   "Withdraw",
+	return a.Signal(a.request("Withdraw", amount))
+}
+
+func (a *simpleMinion) request(command string, amount float64) MinionRequest {
+	base := a.State()
+	return MinionRequest{
+		ID:        base.ID,
+		ManagerID: base.ManagerID,
+		Kind:      base.Kind,
+		Command:   command,
 		Args:      []any{fmt.Sprintf("%f", amount)},
 	}
-	return a.Signal(p)
 }

@@ -23,6 +23,10 @@ type MinionState struct {
 	TimerInvocationsCount int                                `json:"timerInvocationsCount"`
 }
 
+// Base lets MinionState satisfy State. Any struct that embeds MinionState gets it too, so a
+// minion's own state type only needs to embed MinionState.
+func (s *MinionState) Base() *MinionState { return s }
+
 type MinionRequest struct {
 	ID        string
 	ManagerID string
