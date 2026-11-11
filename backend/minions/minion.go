@@ -112,15 +112,15 @@ func NewMinion[S State](id, managerID, kind string, svcs service.ServicesFactory
 
 // Default processors
 
-func (m *Minion[S]) defaultLoad(ctx context.Context, state S) error {
+func (m *Minion[S]) defaultLoad(_ context.Context, _ S) error {
 	return ErrNoState
 }
 
-func (m *Minion[S]) defaultSave(ctx context.Context, state S) error {
+func (m *Minion[S]) defaultSave(_ context.Context, _ S) error {
 	return nil
 }
 
-func (m *Minion[S]) defaultSignal(ctx context.Context, state S, req MinionRequest) error {
+func (m *Minion[S]) defaultSignal(_ context.Context, _ S, req MinionRequest) error {
 	return fmt.Errorf("unknown command %q", req.Command)
 }
 

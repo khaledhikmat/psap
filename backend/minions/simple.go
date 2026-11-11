@@ -32,27 +32,27 @@ type simpleMinion struct {
 
 func NewSimpleMinion(ID, managerID string, svcs service.ServicesFactory, balance float64) ISimpleMinion {
 	m := NewMinion(ID, managerID, simpleKind, svcs, &SimpleMinionState{Balance: balance})
-	m.OnLoad = loadSimple
-	m.OnSave = saveSimple
-	m.OnSignal = handleSimpleRequest
-	m.OnStart = registerSimpleTimers
+	m.OnLoad = load
+	m.OnSave = save
+	m.OnSignal = handleRequest
+	m.OnStart = registerTimers
 	return &simpleMinion{Minion: m}
 }
 
 // loadSimple must load the state using the ID and kind, excluding the manager ID since it may
 // have changed (Start restores it).
-func loadSimple(ctx context.Context, state *SimpleMinionState) error {
+func load(ctx context.Context, state *SimpleMinionState) error {
 	// Implement the load logic for the simple minion state, e.g. read it from the database
 	// by state.ID and state.Kind and return ErrNoState if it is not there.
 	return ErrNoState
 }
 
-func saveSimple(ctx context.Context, state *SimpleMinionState) error {
+func save(ctx context.Context, state *SimpleMinionState) error {
 	// Implement the save logic for the simple minion state, e.g. persist it to the database.
 	return nil
 }
 
-func handleSimpleRequest(ctx context.Context, state *SimpleMinionState, req MinionRequest) error {
+func handleRequest(ctx context.Context, state *SimpleMinionState, req MinionRequest) error {
 	switch req.Command {
 	case "Deposit":
 		amount, err := amountArg(req)
@@ -84,7 +84,7 @@ func amountArg(req MinionRequest) (float64, error) {
 	return strconv.ParseFloat(amount, 64)
 }
 
-func registerSimpleTimers(m *Minion[*SimpleMinionState]) {
+func registerTimers(m *Minion[*SimpleMinionState]) {
 	timer1Proc := func(ctx context.Context, t time.Time) (bool, time.Duration) {
 		// Do stuff
 		// Do not reschedule this timer
