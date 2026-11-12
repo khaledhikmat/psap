@@ -36,10 +36,12 @@ func NewSimpleMinion(ID, managerID string, svcs service.ServicesFactory, balance
 	m.OnSave = save
 	m.OnSignal = handleRequest
 	m.OnStart = registerTimers
+	m.OnRunInitialActivities = runInitialActivities
+	m.OnRunFinalActivities = runFinalActivities
 	return &simpleMinion{Minion: m}
 }
 
-// loadSimple must load the state using the ID and kind, excluding the manager ID since it may
+// load must load the state using the ID and kind, excluding the manager ID since it may
 // have changed (Start restores it).
 func load(ctx context.Context, state *SimpleMinionState) error {
 	// Implement the load logic for the simple minion state, e.g. read it from the database
@@ -49,6 +51,16 @@ func load(ctx context.Context, state *SimpleMinionState) error {
 
 func save(ctx context.Context, state *SimpleMinionState) error {
 	// Implement the save logic for the simple minion state, e.g. persist it to the database.
+	return nil
+}
+
+func runInitialActivities(ctx context.Context, state *SimpleMinionState) error {
+	// Implement the initial activities for the simple minion here.
+	return nil
+}
+
+func runFinalActivities(ctx context.Context, state *SimpleMinionState) error {
+	// Implement the final activities for the simple minion here.
 	return nil
 }
 
