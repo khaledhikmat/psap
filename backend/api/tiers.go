@@ -8,7 +8,7 @@ import (
 )
 
 func (c *Controller) listTiers(ctx *gin.Context) {
-	result, err := c.Svcs.DataSvc.RetrieveTiers(ctx)
+	result, err := c.DataSvc.RetrieveTiers(ctx)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -20,7 +20,7 @@ func (c *Controller) listTiers(ctx *gin.Context) {
 func (c *Controller) showTier(ctx *gin.Context) {
 	id := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveTierByID(ctx, id)
+	result, err := c.DataSvc.RetrieveTierByID(ctx, id)
 	if err != nil {
 		if err == data.ErrNotFound {
 			newError(ctx, http.StatusNotFound, err)

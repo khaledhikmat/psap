@@ -29,7 +29,7 @@ type createAssetRequest struct {
 
 // This returns all assets and let the UI filter
 func (c *Controller) listAssets(ctx *gin.Context) {
-	result, err := c.Svcs.DataSvc.RetrieveAssets(ctx)
+	result, err := c.DataSvc.RetrieveAssets(ctx)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -56,7 +56,7 @@ func (c *Controller) createAsset(ctx *gin.Context) {
 	}
 
 	for _, workerID := range []string{req.BusinessOwnerID, req.BusinessManagerID} {
-		if _, err := c.Svcs.DataSvc.RetrieveWorkerByID(ctx, workerID); err != nil {
+		if _, err := c.DataSvc.RetrieveWorkerByID(ctx, workerID); err != nil {
 			if errors.Is(err, data.ErrNotFound) {
 				newError(ctx, http.StatusBadRequest, errors.New("business owner and manager must be known workers"))
 				return
@@ -95,7 +95,7 @@ func (c *Controller) createAsset(ctx *gin.Context) {
 		UpdatedBy:         req.BusinessOwnerID,
 		UpdatedAt:         now,
 	}
-	if err := c.Svcs.DataSvc.NewAsset(ctx, asset); err != nil {
+	if err := c.DataSvc.NewAsset(ctx, asset); err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
 	}
@@ -106,7 +106,7 @@ func (c *Controller) createAsset(ctx *gin.Context) {
 func (c *Controller) showAsset(ctx *gin.Context) {
 	id := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveAssetByID(ctx, id)
+	result, err := c.DataSvc.RetrieveAssetByID(ctx, id)
 	if err != nil {
 		if err == data.ErrNotFound {
 			newError(ctx, http.StatusNotFound, err)
@@ -122,7 +122,7 @@ func (c *Controller) showAsset(ctx *gin.Context) {
 func (c *Controller) listAssetLaunches(ctx *gin.Context) {
 	assetID := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveLaunchesByAssetID(ctx, assetID)
+	result, err := c.DataSvc.RetrieveLaunchesByAssetID(ctx, assetID)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -134,7 +134,7 @@ func (c *Controller) listAssetLaunches(ctx *gin.Context) {
 func (c *Controller) listAssetShields(ctx *gin.Context) {
 	assetID := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveShieldsByAssetID(ctx, assetID)
+	result, err := c.DataSvc.RetrieveShieldsByAssetID(ctx, assetID)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -146,7 +146,7 @@ func (c *Controller) listAssetShields(ctx *gin.Context) {
 func (c *Controller) listAssetBaselines(ctx *gin.Context) {
 	assetID := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveBaselinesByAssetID(ctx, assetID)
+	result, err := c.DataSvc.RetrieveBaselinesByAssetID(ctx, assetID)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return

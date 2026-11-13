@@ -285,18 +285,22 @@ func run() int {
 	}
 	defer dataSvc.Finalize()
 
-	// flow service
-	flowSvc := flow.NewTemporal(cfgSvc, dataSvc)
-	if flowSvc == nil {
-		lgr.Logger.Error(
-			"unable to instantiate flow service",
-			slog.Any("error", xerrors.New("unable to connect to Temporal")),
-		)
-		return 1
+	// Only modes that still call the flow service connect to Temporal. HTTP API requests
+	// persist assessment state directly through the data service.
+	var flowSvc flow.IService
+	if modeType == "cli" || modeType == "minionmanager" {
+		flowSvc = flow.NewTemporal(cfgSvc, dataSvc)
+		if flowSvc == nil {
+			lgr.Logger.Error(
+				"unable to instantiate flow service",
+				slog.Any("error", xerrors.New("unable to connect to Temporal")),
+			)
+			return 1
+		}
+		// Deferred calls run in reverse order, so the flow service (which uses the data service)
+		// is finalized first.
+		defer flowSvc.Finalize()
 	}
-	// Deferred calls run in reverse order, so the flow service (which uses the data service)
-	// is finalized first.
-	defer flowSvc.Finalize()
 
 	svcs := service.ServicesFactory{
 		CanxCtx: canxCtx,

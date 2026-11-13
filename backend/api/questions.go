@@ -18,9 +18,9 @@ func (c *Controller) listQuestionCategories(ctx *gin.Context) {
 	var err error
 
 	if categoryType != "" {
-		result, err = c.Svcs.DataSvc.RetrieveQuestionCategoriesByType(ctx, model.QuestionCategoryType(categoryType))
+		result, err = c.DataSvc.RetrieveQuestionCategoriesByType(ctx, model.QuestionCategoryType(categoryType))
 	} else {
-		result, err = c.Svcs.DataSvc.RetrieveQuestionCategories(ctx)
+		result, err = c.DataSvc.RetrieveQuestionCategories(ctx)
 	}
 
 	if err != nil {
@@ -34,7 +34,7 @@ func (c *Controller) listQuestionCategories(ctx *gin.Context) {
 func (c *Controller) showQuestionCategory(ctx *gin.Context) {
 	id := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveQuestionCategoryByID(ctx, id)
+	result, err := c.DataSvc.RetrieveQuestionCategoryByID(ctx, id)
 	if err != nil {
 		if err == data.ErrNotFound {
 			newError(ctx, http.StatusNotFound, err)
@@ -50,7 +50,7 @@ func (c *Controller) showQuestionCategory(ctx *gin.Context) {
 func (c *Controller) listCategoryQuestions(ctx *gin.Context) {
 	categoryID := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveQuestionsByCategoryID(ctx, categoryID)
+	result, err := c.DataSvc.RetrieveQuestionsByCategoryID(ctx, categoryID)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -69,9 +69,9 @@ func (c *Controller) listQuestions(ctx *gin.Context) {
 	var err error
 
 	if categoryType != "" {
-		result, err = c.Svcs.DataSvc.RetrieveQuestionsByCategoryType(ctx, model.QuestionCategoryType(categoryType))
+		result, err = c.DataSvc.RetrieveQuestionsByCategoryType(ctx, model.QuestionCategoryType(categoryType))
 	} else {
-		result, err = c.Svcs.DataSvc.RetrieveQuestions(ctx)
+		result, err = c.DataSvc.RetrieveQuestions(ctx)
 	}
 
 	if err != nil {
@@ -85,7 +85,7 @@ func (c *Controller) listQuestions(ctx *gin.Context) {
 func (c *Controller) showQuestion(ctx *gin.Context) {
 	id := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveQuestionByID(ctx, id)
+	result, err := c.DataSvc.RetrieveQuestionByID(ctx, id)
 	if err != nil {
 		if err == data.ErrNotFound {
 			newError(ctx, http.StatusNotFound, err)
@@ -108,9 +108,9 @@ func (c *Controller) listPredefinedAnswers(ctx *gin.Context) {
 	var err error
 
 	if categoryType != "" {
-		result, err = c.Svcs.DataSvc.RetrievePredefinedAnswersByCategoryType(ctx, model.QuestionCategoryType(categoryType))
+		result, err = c.DataSvc.RetrievePredefinedAnswersByCategoryType(ctx, model.QuestionCategoryType(categoryType))
 	} else {
-		result, err = c.Svcs.DataSvc.RetrievePredefinedAnswers(ctx)
+		result, err = c.DataSvc.RetrievePredefinedAnswers(ctx)
 	}
 
 	if err != nil {
@@ -124,7 +124,7 @@ func (c *Controller) listPredefinedAnswers(ctx *gin.Context) {
 func (c *Controller) listQuestionPredefinedAnswers(ctx *gin.Context) {
 	id := ctx.Param("id")
 
-	if _, err := c.Svcs.DataSvc.RetrieveQuestionByID(ctx, id); err != nil {
+	if _, err := c.DataSvc.RetrieveQuestionByID(ctx, id); err != nil {
 		if err == data.ErrNotFound {
 			newError(ctx, http.StatusNotFound, err)
 			return
@@ -133,7 +133,7 @@ func (c *Controller) listQuestionPredefinedAnswers(ctx *gin.Context) {
 		return
 	}
 
-	result, err := c.Svcs.DataSvc.RetrievePredefinedAnswersByQuestionID(ctx, id)
+	result, err := c.DataSvc.RetrievePredefinedAnswersByQuestionID(ctx, id)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return

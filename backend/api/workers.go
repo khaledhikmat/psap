@@ -8,7 +8,7 @@ import (
 )
 
 func (c *Controller) listWorkers(ctx *gin.Context) {
-	result, err := c.Svcs.DataSvc.RetrieveWorkers(ctx)
+	result, err := c.DataSvc.RetrieveWorkers(ctx)
 	if err != nil {
 		newError(ctx, http.StatusInternalServerError, err)
 		return
@@ -20,7 +20,7 @@ func (c *Controller) listWorkers(ctx *gin.Context) {
 func (c *Controller) showWorker(ctx *gin.Context) {
 	id := ctx.Param("id")
 
-	result, err := c.Svcs.DataSvc.RetrieveWorkerByID(ctx, id)
+	result, err := c.DataSvc.RetrieveWorkerByID(ctx, id)
 	if err != nil {
 		if err == data.ErrNotFound {
 			newError(ctx, http.StatusNotFound, err)

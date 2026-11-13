@@ -181,6 +181,11 @@ POST /shields/:id/submit-evidences     # Submit partial evidences
 POST /shields/:id/finalize-evidences   # Finalize evidences
 ```
 
+The HTTP API handles launch and shield state changes directly through the data service. In
+`httpserver` mode it does not connect to Temporal; Temporal-based workflows and the CLI remain
+available in their existing modes. Timeouts, reminders, warnings, and escalations are not
+scheduled by these API operations yet and are intended to be handled by a separate batch process.
+
 ### Request/Response Examples
 
 **POST /launches**
@@ -214,4 +219,3 @@ Evidence is recorded for questions that already have an answer.
   ]
 }
 ```
-

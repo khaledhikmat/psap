@@ -192,7 +192,7 @@ func setupRouter(canxCtx context.Context, svcs service.ServicesFactory, eventStr
 
 	// Setup controller to handler routes
 	mainRouter := engine.Group(api.ContextRoot)
-	ctrlr := api.NewController(svcs, eventStream)
+	ctrlr := api.NewController(svcs.DataSvc, eventStream)
 	ctrlr.Routes(mainRouter)
 
 	return engine, nil

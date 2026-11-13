@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/khaledhikmat/psap/model"
-	"github.com/khaledhikmat/psap/service"
+	"github.com/khaledhikmat/psap/service/data"
 	"github.com/khaledhikmat/psap/service/lgr"
 	"github.com/khaledhikmat/psap/utils"
 	"go.opentelemetry.io/otel"
@@ -65,11 +65,11 @@ func newError(ctx *gin.Context, status int, err error) {
 }
 
 type Controller struct {
-	Svcs        service.ServicesFactory
+	DataSvc     data.IService
 	EventStream chan<- interface{}
 }
 
-func NewController(svcs service.ServicesFactory, eventStream chan<- interface{}) *Controller {
+func NewController(dataSvc data.IService, eventStream chan<- interface{}) *Controller {
 	apiEnsureMetrics()
 
 	if !apiMetricsInitialized {
@@ -82,10 +82,8 @@ func NewController(svcs service.ServicesFactory, eventStream chan<- interface{})
 		return nil
 	}
 
-	// TODO: Create Temporal client
-
 	return &Controller{
-		Svcs:        svcs,
+		DataSvc:     dataSvc,
 		EventStream: eventStream,
 	}
 }

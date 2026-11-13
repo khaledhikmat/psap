@@ -12,6 +12,8 @@ var (
 	ErrNotFound = errors.New("not found")
 	// ErrAlreadyExists is returned when a new entity's ID is already taken.
 	ErrAlreadyExists = errors.New("already exists")
+	// ErrInvalidState is returned when a state transition is attempted from the wrong state.
+	ErrInvalidState = errors.New("invalid entity state")
 )
 
 type IService interface {
@@ -61,6 +63,8 @@ type IService interface {
 	// valid (see the answers package); questions not submitted are left unchanged.
 	SaveLaunchAnswers(ctx context.Context, launchID string, submissions []model.AnswerSubmission, actor string) error
 	SaveShieldAnswers(ctx context.Context, shieldID string, submissions []model.AnswerSubmission, actor string) error
+	// SaveShieldEvidences atomically upserts evidence for questions already answered on a shield.
+	SaveShieldEvidences(ctx context.Context, shieldID string, submissions []model.EvidenceSubmission, actor string) error
 	RetrieveUserAnswersByLaunchID(ctx context.Context, launchID string) ([]model.UserAnswerDetail, error)
 	RetrieveUserAnswersByShieldID(ctx context.Context, shieldID string) ([]model.UserAnswerDetail, error)
 	RetrieveUserAnswerByID(ctx context.Context, id string) (model.UserAnswerDetail, error)
@@ -71,16 +75,24 @@ type IService interface {
 	RetrieveUserAnswerHistoryByShieldID(ctx context.Context, shieldID string) ([]model.UserAnswerHistory, error)
 
 	NewLaunch(ctx context.Context, launch model.Launch) error
+	// InitiateLaunch atomically replaces any active launch for the asset, inserts launch, and updates LastLaunchID.
+	InitiateLaunch(ctx context.Context, launch model.Launch) error
 	RetrieveLaunches(ctx context.Context) ([]model.Launch, error)
 	RetrieveLaunchesByAssetID(ctx context.Context, assetID string) ([]model.Launch, error)
 	RetrieveLaunchByID(ctx context.Context, id string) (model.Launch, error)
 	UpdateLaunch(ctx context.Context, launch model.Launch) error
+	// ValidateLaunchTier atomically validates the launch and advances its asset to pending-shield.
+	ValidateLaunchTier(ctx context.Context, launchID, tierID, actor string) error
 
 	NewShield(ctx context.Context, shield model.Shield) error
+	// InitiateShield atomically replaces any active shield for the asset, inserts shield, and updates LastShieldID.
+	InitiateShield(ctx context.Context, shield model.Shield) error
 	RetrieveShields(ctx context.Context) ([]model.Shield, error)
 	RetrieveShieldsByAssetID(ctx context.Context, assetID string) ([]model.Shield, error)
 	RetrieveShieldByID(ctx context.Context, id string) (model.Shield, error)
 	UpdateShield(ctx context.Context, shield model.Shield) error
+	// CompleteShield atomically completes a shield and advances its asset to shielded.
+	CompleteShield(ctx context.Context, shieldID string, score int, actor string) error
 
 	// NewEvidences and UpdateEvidences apply all evidences in a single transaction.
 	NewEvidences(ctx context.Context, evidences []model.Evidence) error
