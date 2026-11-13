@@ -31,6 +31,7 @@ type ILaunchMinion interface {
 	GetState() LaunchMinionState
 }
 
+// Like configuration...
 type LaunchMinionOptions struct {
 	AssetID           string
 	BusinessOwner     string
@@ -50,13 +51,15 @@ type LaunchMinionState struct {
 	BusinessManager      string
 	LaunchState          model.LaunchState
 	TierID               string
+	Questions            []model.Question
+	Answers              []model.AnswerSubmission
 	TierApprovalDeadline time.Time
 	Points               int
 	Answered             int
-	Questions            int
-	Reminders            int
-	Warnings             int
-	Escalations          int
+	QuestionsCount       int
+	RemindersCount       int
+	WarningsCount        int
+	EscalationsCount     int
 	ReminderTimeout      int
 	MaxReminders         int
 	WarningTimeout       int
@@ -107,6 +110,7 @@ func NewLaunchMinion(id, managerID string, svcs service.ServicesFactory, opts La
 	return m
 }
 
+// Load my state from the data service using the launch ID and asset ID. Returns ErrNoState if not found.
 func (m *launchMinion) load(ctx context.Context, state *LaunchMinionState) error {
 	if state.ID == "" {
 		return errors.New("load launch minion: launch ID is empty")
