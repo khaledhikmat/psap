@@ -62,3 +62,19 @@ m.OnRunInitialActivities / m.OnRunFinalActivities = ...
   `Signal`, `State()` (a snapshot of the base state) or `View(fn)` (read access to the whole `S`).
 - Override processors after `NewMinion` and before `Start`.
 - The final activities and last save get a context that is not cancelled, so they can still use the database.
+
+### Launch minion prototype
+
+`launch.go` adapts the launch workflow's create, answer submission/finalization, tier calculation and approval,
+nudge, persistence, and Shield-start steps to the minion lifecycle. Construct it with a unique launch ID (also
+used as the persisted launch ID), a manager ID, the services, and `LaunchMinionOptions`. Use
+`SubmitAnswers`, `FinalizeAnswers`, `ReviseAnswers`, and `ValidateTier` to enqueue commands, and `GetState`
+to read the current launch snapshot.
+
+This is not a drop-in replacement for the Temporal workflow: it has no replay or Continue-As-New, its state
+queries are local snapshots rather than Temporal queries, and revisions are queued signals rather than
+synchronous Temporal updates. Recovered approval waits receive a fresh seven-day deadline because the launch
+record does not persist the original deadline; owner nudge schedules use the persisted creation time and counts.
+A validated launch still starts Shield through the configured
+flow service, so Shield may remain Temporal-backed. The manager must stop the minion after its launch reaches a
+terminal state; the generic minion loop does not stop itself on domain-state changes.

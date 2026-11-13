@@ -4,6 +4,8 @@ import "github.com/khaledhikmat/psap/model"
 
 type LaunchCreationRequest struct {
 	AssetID string
+	// LaunchID is set by minions. Temporal workflows leave it empty and use their run ID.
+	LaunchID string
 }
 
 type LaunchCreationResult struct {

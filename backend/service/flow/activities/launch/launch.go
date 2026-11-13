@@ -32,10 +32,13 @@ func NewActivities(cfgSvc config.IService, dataSvc data.IService) *Activities {
 // Create stores a new launch and records it as the asset's last launch. Answers are created
 // as the business owner submits them.
 //
-// The launch ID is the workflow's run ID, so it is stable across activity retries: a retry
-// after a successful insert finds the row and succeeds instead of creating a second launch.
+// Temporal workflows use the run ID as the launch ID, so retries find the row created by an
+// earlier attempt. Minions supply their own stable launch ID in req.LaunchID.
 func (a *Activities) Create(ctx context.Context, req LaunchCreationRequest) (LaunchCreationResult, error) {
-	launchID := activity.GetInfo(ctx).WorkflowExecution.RunID
+	launchID := req.LaunchID
+	if launchID == "" {
+		launchID = activity.GetInfo(ctx).WorkflowExecution.RunID
+	}
 
 	asset, err := a.DataSvc.RetrieveAssetByID(ctx, req.AssetID)
 	if err != nil {
