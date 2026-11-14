@@ -288,7 +288,7 @@ func run() int {
 	// Only modes that still call the flow service connect to Temporal. HTTP API requests
 	// persist assessment state directly through the data service.
 	var flowSvc flow.IService
-	if modeType == "cli" || modeType == "minionmanager" {
+	if modeType == "cli" {
 		flowSvc = flow.NewTemporal(cfgSvc, dataSvc)
 		if flowSvc == nil {
 			lgr.Logger.Error(
