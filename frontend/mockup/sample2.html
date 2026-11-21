@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PSAP 2.0 Security Assessment</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: tabbed header. Home = two large start boxes. Assessment = progress bar, one question card, details box beside it. */
+:root{
+  --bg:#edf1f4; --panel:#ffffff; --ink:#14202b; --muted:#566574; --line:#d3dbe2; --soft:#e6ecf1;
+  --accent:#0f4c75; --accent-ink:#ffffff; --accent-soft:#dfeaf3; --teal:#0e7c86; --teal-soft:#dcf0f1;
+  --lo:#2b7a4b; --lo-bg:#e2f1e7; --md:#a2660a; --md-bg:#fbeed6; --hi:#ad2b25; --hi-bg:#f8e1df;
+  --h-lo:#cfe8d7; --h-md:#f4dcab; --h-hi:#efbab5;
+  --t1:#ad2b25; --t2:#b4650d; --t3:#1f5f97; --t4:#3d7a51;
+  --display:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",Consolas,ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#10161c; --panel:#18212a; --ink:#e5ebf0; --muted:#97a6b4; --line:#2b3845; --soft:#202b36;
+  --accent:#78b0dc; --accent-ink:#0b141c; --accent-soft:#1b2f41; --teal:#5cc3cb; --teal-soft:#17363a;
+  --lo:#6cc492; --lo-bg:#16301f; --md:#e4ab52; --md-bg:#352812; --hi:#ef8780; --hi-bg:#3a1b19;
+  --h-lo:#1f4a30; --h-md:#59401a; --h-hi:#5e2521;
+  --t1:#ef8780; --t2:#e8a54e; --t3:#78b0dc; --t4:#7cc497; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#10161c; --panel:#18212a; --ink:#e5ebf0; --muted:#97a6b4; --line:#2b3845; --soft:#202b36;
+  --accent:#78b0dc; --accent-ink:#0b141c; --accent-soft:#1b2f41; --teal:#5cc3cb; --teal-soft:#17363a;
+  --lo:#6cc492; --lo-bg:#16301f; --md:#e4ab52; --md-bg:#352812; --hi:#ef8780; --hi-bg:#3a1b19;
+  --h-lo:#1f4a30; --h-md:#59401a; --h-hi:#5e2521;
+  --t1:#ef8780; --t2:#e8a54e; --t3:#78b0dc; --t4:#7cc497; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15.5px;line-height:1.5;padding-bottom:env(safe-area-inset-bottom,0px)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--panel);z-index:20}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+h1,h2,h3{margin:0;font-family:var(--display);font-weight:700;line-height:1.15;text-wrap:balance}
+p{margin:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:var(--panel);border-bottom:1px solid var(--line)}
+.hd{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding-top:10px}
+@media (max-width:600px){.role{margin-left:0;width:100%;justify-content:flex-start}.brand span{display:none}}
+.mark{width:38px;height:38px;flex:none;border-radius:8px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-family:var(--display);font-weight:700;font-size:12px}
+.role{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);flex-wrap:wrap;justify-content:flex-end}
+.role button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:4px 11px;font-size:12.5px;font-weight:600}
+.role button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.brand b{display:block;font-family:var(--display);font-size:20px;line-height:1.1}
+.brand span{display:block;font-size:12px;color:var(--muted)}
+nav.tabs{display:flex;gap:2px;overflow-x:auto;padding-block:8px 0;scrollbar-width:none}
+nav.tabs::-webkit-scrollbar{display:none}
+nav.tabs[hidden]{display:none}
+nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:8px 12px 9px;font-weight:600;font-size:14px;color:var(--muted);white-space:nowrap}
+nav.tabs button[aria-current="page"]{color:var(--ink);border-bottom-color:var(--accent)}
+main{padding-block:22px 56px}
+main>section{display:grid;gap:18px;min-width:0}
+
+.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:11px 20px;font-weight:600}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn.teal{background:var(--teal);color:var(--accent-ink)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:clamp(18px,3vw,30px);display:grid;gap:16px;min-width:0}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lead{color:var(--muted);max-width:66ch}
+.note{font-size:13.5px;color:var(--muted)}
+
+/* home */
+.hero{display:grid;gap:8px}
+.hero h1{font-size:clamp(30px,5vw,44px)}
+.starts{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.start{text-align:left;border:2px solid var(--line);background:var(--panel);border-radius:16px;padding:clamp(22px,4vw,36px);display:grid;gap:12px;align-content:start;min-height:250px;transition:border-color .15s,transform .15s}
+.start:hover{border-color:var(--accent);transform:translateY(-2px)}
+.start .ic{width:54px;height:54px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.start.ex .ic{background:var(--teal-soft);color:var(--teal)}
+.start h2{font-size:clamp(26px,3.6vw,34px)}
+.start p{color:var(--muted)}
+.start .go{font-weight:600;color:var(--accent)}
+.start.ex .go{color:var(--teal)}
+.start ul{margin:0;padding-left:18px;color:var(--muted);font-size:14px;display:grid;gap:2px}
+.recent{display:grid;gap:8px}
+
+/* assessment */
+.prog{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px;display:grid;gap:10px}
+.prog-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;align-items:baseline}
+.prog-top b{font-family:var(--display);font-size:18px}
+.bar{height:10px;background:var(--soft);border-radius:6px;overflow:hidden}
+.bar span{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .3s}
+.bar.as span{background:var(--teal)}
+.phases{display:flex;flex-wrap:wrap;gap:6px}
+.ph{font-size:12px;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--soft);color:var(--muted)}
+.ph.on{background:var(--accent);color:var(--accent-ink)}
+.ph.as.on{background:var(--teal)}
+.ph.done{background:var(--lo-bg);color:var(--lo)}
+.qwrap{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px;align-items:start}
+@media (max-width:860px){.qwrap{grid-template-columns:minmax(0,1fr)}}
+.qcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:clamp(18px,3.5vw,32px);display:grid;gap:18px;min-width:0}
+.qcard h2{font-size:clamp(22px,3vw,28px);line-height:1.25}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--mono);font-size:11.5px;background:var(--soft);border-radius:999px;padding:2px 9px;white-space:nowrap}
+.chip.role{background:var(--accent-soft)}
+.chip.role.as{background:var(--teal-soft)}
+.details{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:18px;display:grid;gap:10px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 108px)}
+.details.as{border-left-color:var(--teal)}
+@media (max-width:860px){.details{position:static}}
+.details h3{font-size:17px}
+.details p,.details li{font-size:14px}
+.details ul{margin:0;padding-left:18px;display:grid;gap:6px}
+.details .ex{background:var(--soft);border-radius:8px;padding:10px 12px;font-size:13.5px}
+.opts{display:grid;gap:8px}
+.opt{display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;align-items:center;text-align:left;border:1px solid var(--line);background:var(--bg);border-radius:9px;padding:10px 14px;font-size:15px;transition:border-color .15s}
+.opt:hover{border-color:var(--accent)}
+.opt b{font-family:var(--display);font-size:22px;color:var(--accent);text-align:center}
+.opt[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);font-weight:600}
+.chk{display:flex;gap:10px;align-items:flex-start;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.chk input{width:18px;height:18px;margin-top:2px}
+label.f{display:grid;gap:5px;font-size:13.5px;font-weight:600}
+.inp{border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:10px 12px;font-weight:400;width:100%}
+textarea.inp{min-height:110px;resize:vertical}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.formh{grid-column:1/-1;font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line);padding-bottom:4px;margin-top:4px}
+.nav{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:16px}
+.compare{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.box{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:4px;align-content:start}
+.box .k{font-family:var(--mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.vbtns{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.vb{border:2px solid var(--line);background:var(--bg);border-radius:9px;padding:12px;text-align:left;display:grid;gap:2px}
+.vb span{font-size:13px;color:var(--muted)}
+.vb[aria-pressed="true"][data-v="confirm"]{border-color:var(--lo);background:var(--lo-bg)}
+.vb[aria-pressed="true"][data-v="correct"]{border-color:var(--md);background:var(--md-bg)}
+.vb[aria-pressed="true"][data-v="return"]{border-color:var(--hi);background:var(--hi-bg)}
+.center{display:grid;gap:14px;justify-items:start;max-width:640px}
+.check{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;background:var(--lo-bg);color:var(--lo)}
+
+/* results */
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.v{border:1px solid var(--line);border-left-width:5px;border-radius:10px;padding:12px 14px;display:grid;gap:4px;align-content:start}
+.v .k{font-family:var(--mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.v .big{font-family:var(--display);font-size:36px;font-weight:700;line-height:1.05}
+.v .d{font-size:13.5px;color:var(--muted)}
+.t1{border-left-color:var(--t1)}.t1 .big,.c1{color:var(--t1)}
+.t2{border-left-color:var(--t2)}.t2 .big,.c2{color:var(--t2)}
+.t3{border-left-color:var(--t3)}.t3 .big,.c3{color:var(--t3)}
+.t4{border-left-color:var(--t4)}.t4 .big,.c4{color:var(--t4)}
+.v.hi{border-left-color:var(--hi)}.v.hi .big{color:var(--hi)}
+.v.md{border-left-color:var(--md)}.v.md .big{color:var(--md)}
+.v.lo{border-left-color:var(--lo)}.v.lo .big{color:var(--lo)}
+.v.na{border-left-color:var(--line)}.v.na .big{color:var(--muted)}
+.pill{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600;white-space:nowrap}
+.p-hi{background:var(--hi-bg);color:var(--hi)}.p-md{background:var(--md-bg);color:var(--md)}.p-lo{background:var(--lo-bg);color:var(--lo)}.p-na{background:var(--soft);color:var(--muted)}
+.two{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:760px){.two{grid-template-columns:minmax(0,1fr)}}
+.heat{display:grid;grid-template-columns:28px repeat(5,minmax(42px,56px));grid-auto-rows:minmax(38px,46px);gap:3px}
+.heat .cell{border-radius:5px;display:grid;place-items:center;font-family:var(--mono);font-size:13px;position:relative}
+.heat .c-lo{background:var(--h-lo)}.heat .c-md{background:var(--h-md)}.heat .c-hi{background:var(--h-hi)}
+.heat .ax{display:grid;place-items:center;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.heat .me{outline:3px solid var(--ink);outline-offset:-3px}
+.heat .me::after{content:"";width:12px;height:12px;border-radius:50%;background:var(--ink);position:absolute}
+.heatwrap{display:grid;gap:6px;justify-items:start}
+.axl{font-size:12px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+.ctl{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
+.ctl small{display:block;color:var(--muted)}
+@media (max-width:520px){.ctl{grid-template-columns:minmax(0,1fr)}}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;padding:6px 11px;font-size:13px;border-left:1px solid var(--line)}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed="true"][data-v="Met"]{background:var(--lo);color:var(--panel)}
+.seg button[aria-pressed="true"][data-v="Gap"]{background:var(--hi);color:var(--panel)}
+.seg button[aria-pressed="true"][data-v="Exception"]{background:var(--md);color:var(--panel)}
+.adj{display:flex;gap:6px;flex-wrap:wrap}
+.adj button{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 12px}
+.adj button[aria-pressed="true"]{border-color:var(--teal);background:var(--teal-soft);font-weight:600}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+tr:last-child td{border-bottom:0}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--soft);font-weight:500;white-space:nowrap}
+td.r,th.r{text-align:right}
+.minw{min-width:620px}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;counter-reset:s}
+.fs{border:1px solid var(--line);border-top:4px solid var(--accent);border-radius:10px;padding:12px;display:grid;gap:4px;background:var(--panel)}
+.fs.as{border-top-color:var(--teal)}
+.fs b{font-family:var(--display);font-size:17px}
+.fs span{font-size:13px;color:var(--muted)}
+.formula{font-family:var(--mono);background:var(--soft);border-radius:8px;padding:10px 12px;font-size:13px;overflow-x:auto;white-space:nowrap}
+.tag{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);border-radius:4px;padding:1px 6px;background:var(--panel)}
+.prose{display:grid;gap:12px;max-width:72ch}
+.toast{font-size:13px;color:var(--lo)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;transform:none!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="hd"><div class="mark" aria-hidden="true">PSAP</div><div class="brand"><b>PSAP 2.0 Security Assessment</b><span>Physical Security Assessment Program · secure rooms and areas</span></div><div class="role" role="group" aria-label="View as"><span>View as</span><button data-role="aco">ACO / SME</button><button data-role="sec">Physical Security</button></div></div>
+    <nav class="tabs" aria-label="Sections">
+      <button data-view="home">Home</button><button data-view="process">Process</button><button data-view="launch">LAUNCH</button><button data-view="shield">SHIELD</button><button data-view="tiers">Tiers</button><button data-view="baseline">Baseline</button><button data-view="leadership">Leadership</button><button data-view="governance">Governance</button>
+    </nav>
+  </div>
+</header>
+<main class="wrap"><section id="view"></section></main>
+
+<script>
+/* ======================= content ======================= */
+const FUNCS=["Safekeeping of valuables (i.e., currency, IT equipment)","High dollar asset storage (not affixed to room)","Data Transmission / Network infrastructure","Data Storage","Sensitive Business Operations (i.e., member data, fraud)","Building Infrastructure (Water, Electrical, HVAC)","Executive Leadership Team (ELT) area","Physical security operations","Life-safety systems","Other"];
+const Q_ACCESS={id:"ACC",num:4,name:"Routine Access",q:"How limited is the legitimate business population requiring access to this asset?",a:["Broad business population: no access restrictions","Defined business population: all badged employees and contractors","Limited business population: badged employees only","Restricted access population: access limited to a small number of specifically approved individuals","Highly restricted access only: normally limited to very few individuals and may require approval for a specific purpose each time"],
+ d:{what:"Who normally needs to get into this room to do their job. This question is not scored. The assessor uses it to check the access list.",how:["Count only people with a business reason to enter, not everyone who currently has badge access.","If access is approved case by case, choose 5."],ex:["Any badged employee can enter → 3","Four named IT staff only → 4","Vault opened only with dual approval each time → 5"]}};
+const LAUNCH=[
+ {id:"Q5",num:5,name:"Asset Type",w:20,q:"What type of assets are housed in this room or area? Answer for the highest-criticality asset, system or information actually housed in the room.",a:["General office equipment or supplies","Department-specific equipment, records or resources","Shared business systems or sensitive information","Association systems, security systems or regulated information","Mission-critical infrastructure, life-safety systems or highly sensitive assets"],ev:"Asset inventory",
+  d:{what:"The most important thing kept in the room. Answer for the single highest item, not the average of everything in the room.",how:["Walk the room in your head and pick the item whose loss would hurt most.","Evidence: an asset inventory or equipment list."],ex:["Supply closet with paper and toner → 1","Room with supplies and the site's only network switch → answer for the switch: 4","Fire alarm panel or main electrical gear → 5"]},
+  v:"Compare the answer with the asset inventory. If the inventory shows a more critical asset than the ACO chose, correct it upward."},
+ {id:"Q6",num:6,name:"Business Dependency",w:25,q:"How dependent are daily business operations on this room or area?",a:["Minimal: convenience function only","Limited: supports a single team or department","Moderate: supports multiple departments or a business function","Significant: supports critical business operations or major site functions","Severe: supports Association-wide operations or could cause major business interruption"],ev:"Dependency map or BIA",
+  d:{what:"How much work stops if nobody can use this room for a day.",how:["Think about who calls the help desk first when the room goes down.","Evidence: a dependency map or business impact analysis (BIA)."],ex:["Break room → 1","One team's file room → 2","Main network room for the whole site → 4","Data center serving every office → 5"]},
+  v:"Check the dependency map or BIA. If neither exists, confirm with the ACO's manager and note it."},
+ {id:"Q7",num:7,name:"Recovery Capability",w:20,q:"If this room or area became unavailable, how quickly could operations be restored using existing recovery plans, redundancies or alternate locations?",a:["Within hours","Within 1 day","Within 1 week","Within 1 month","More than 1 month or no practical recovery option"],ev:"Business continuity plan",
+  d:{what:"How long until the work this room supports is running again somewhere else.",how:["Use the business continuity plan (BCP), not a best guess.","If there is no written plan, choose 5."],ex:["Work moves to laptops at home the same day → 1","Equipment can be reordered and installed within a week → 3","No alternate site and custom equipment → 5"]},
+  v:"Open the BCP and find the recovery time for this function. If the BCP says longer than the ACO did, correct it."},
+ {id:"Q8",num:8,name:"Unauthorized Access Impact",w:25,q:"What could be the impact if assets, systems, information or equipment in this room were accessed by an unauthorized person?",a:["No meaningful impact","Limited impact to a small workgroup","Moderate impact to a department or business function","Significant impact to multiple departments, a site or customers","Severe enterprise, regulatory, financial or reputational impact"],ev:"Data classification",
+  d:{what:"The damage if the wrong person got in and could see, take or change what is inside.",how:["Consider theft, tampering and simply viewing information.","Evidence: the data classification of anything stored or processed here."],ex:["Office supplies → 1","Department budget files → 3","Member records or payment data → 5"]},
+  v:"Check the data classification records. Regulated or restricted data in the room means 4 or 5."},
+ {id:"Q9",num:9,name:"Backup / Alternate Resources",w:10,q:"Are backup systems or alternate resources available if a primary system or component in this room fails?",a:["Full redundancy: continuity with little or no interruption","High redundancy: backup available with minimal downtime","Moderate redundancy: backups exist, but single points of failure remain","Limited redundancy: some backup capability exists but recovery requires significant effort","No redundancy: critical functions depend on a single point of failure"],ev:"DR runbook or test record",
+  d:{what:"Whether a working backup exists if equipment in this room fails.",how:["Count only backups that exist today and have been tested.","A planned backup that is not installed counts as none."],ex:["Automatic failover to a second data center → 1","Spare switch on the shelf, manual swap → 3","One circuit, no spare, no failover → 5"]},
+  v:"Ask for the last failover or restore test. No test record means the backup is unproven; consider correcting upward."}
+];
+const SHIELD=[
+ {id:"S1",name:"Physical Proximity",w:15,q:"Counting from the nearest uncontrolled or public point, how many access-controlled zone boundaries must be crossed to reach the room or area?",a:["Must cross 3 or more access-controlled zone boundaries","Must cross 2 access-controlled zone boundaries","Must cross 1 access-controlled zone boundary","Can reach the immediate area without crossing a zone boundary, but not directly from a public area","Can directly approach the asset from a public or unrestricted area"],
+  d:{rule:"Count boundaries on the shortest normal route from the nearest uncontrolled point. The room's own door is scored under Ease of Entry, not here.",ex:["Lobby → badge door to floor → badge door to suite → room: 2 boundaries → 2","Room door opens onto the public lobby → 5"],evid:"Floor plan with the route marked"}},
+ {id:"S2",name:"Ease of Entry",w:20,q:"How difficult would it be for an unauthorized individual to gain entry through the room or area's own boundary?",a:["Entry requires defeating 3 or more independent barriers","Entry requires defeating 2 independent barriers","Entry requires defeating 1 hardened or rated barrier","Entry requires bypassing 1 standard, unrated barrier","No physical barrier prevents entry"],
+  d:{rule:"Count independent barriers on the room's own entry only. A reader, lock and door contact on the same door count as one barrier.",ex:["Standard hollow-core door with a badge reader → 4","Rated steel door plus an inner cage → 2"],evid:"Photo of the door, frame and hardware"}},
+ {id:"S3",name:"Time to Access",w:15,q:"How long does it take to walk from the nearest uncontrolled approach point to the room or area's outermost door or opening?",a:["More than 10 minutes","5 to 10 minutes","2 to 5 minutes","30 seconds to 2 minutes","Less than 30 seconds"],
+  d:{rule:"Time the route at a normal walking pace. Record the start point, the route and the time.",ex:["Lobby to the 4th-floor room by elevator: 1 min 40 s → 4","Room next to the loading dock door: 15 s → 5"],evid:"Timed walk with start point and route"}},
+ {id:"S4",name:"Skill / Resources to Defeat",w:10,q:"What level of skill, tools, inside knowledge or specialized equipment would be needed to bypass or defeat the room or area's physical boundary?",a:["Specialized technical knowledge and equipment not commonly available","Specialized equipment or documented technical knowledge","Commercially available tools and basic knowledge","Ordinary hand tools or simple manipulation","No tools or specialized knowledge needed"],
+  d:{rule:"Rate only what you can observe: the hardware and how it is installed. Do not test or attempt a bypass.",ex:["Exposed hinge pins on an outward-swinging door → 4","High-security lock, rated door, no exposed fasteners → 1 or 2"],evid:"Photos of hinges, strike and lock"}},
+ {id:"S5",name:"Visual Exposure",w:10,q:"How easily can the asset be seen and observed in its environment?",a:["Not visible from any uncontrolled area","Visible only from a restricted or controlled adjacent area","Partially visible from an uncontrolled area","Fully visible from an uncontrolled (non-public) area","Fully visible from a public or unrestricted area"],
+  d:{rule:"Stand at the nearest uncontrolled point at eye level and look for the asset.",ex:["Glass wall facing an open office → 4","Interior room with a solid door → 1"],evid:"Photo from the observation point"}},
+ {id:"S6",name:"Recognizability",w:5,q:"How easily can the asset's purpose, value or importance be understood by someone unfamiliar with it?",a:["Purpose cannot reasonably be determined","Purpose can only be determined with internal knowledge","General function can be inferred, specific value is not apparent","Purpose is apparent from signage, equipment, layout or routine activity","Purpose and security significance are explicit or obvious"],
+  d:{rule:"Rate what a stranger could tell from signs, equipment noise, cooling or traffic.",ex:["Door sign reads SERVER ROOM → 5","Unmarked door with a room number → 1 or 2"],evid:"Photo of signage and cues"}},
+ {id:"S7",name:"Information Availability",w:5,q:"How readily available is information about the asset's characteristics, location or function to the general public?",a:["No public information identifies the asset or its location","General facility information is public, the asset is not identified","Asset type is publicly identifiable, location and details are not","Asset location or operational details are publicly available","Detailed location, function, configuration or access information is public"],
+  d:{rule:"Use the approved public-source search. Record the sources, search terms and date.",ex:["Office address public, room never named → 2","Floor and room of the data center listed in a public filing → 4"],evid:"Search record with date"}},
+ {id:"S8",name:"Human / Operational Exposure",w:10,q:"Which people not permanently assigned to the room or area enter or work in the immediate area, and how often?",a:["No non-assigned persons, or escorted exception-only access","Non-assigned persons enter less than monthly","Non-assigned employees or contractors enter monthly to weekly","Contractors or service personnel enter daily or routinely","Visitors, members or the public enter daily or routinely"],
+  d:{rule:"Score the highest group that applies, using access logs or the visitor log, not memory.",ex:["HVAC contractor visits weekly → 3","Members walk past daily in the branch lobby → 5"],evid:"Access or visitor log extract"}},
+ {id:"S9",name:"Exterior / Environmental Exposure",w:10,q:"Does the room or area have direct exposure to exterior, uncontrolled or environmental conditions that affect required protection?",a:["Fully interior, no uncontrolled adjacency","Adjacent to lower-controlled interior space only","Exterior wall, service penetration or nearby utility exposure","Accessible exterior opening, service route, dock or equipment opening","Direct public exterior door, vehicle-accessible boundary or high environmental exposure"],
+  d:{rule:"Select the highest condition actually present.",ex:["Interior room surrounded by offices → 1","Shares a wall with the loading dock → 4"],evid:"Photo or drawing reference"}}
+];
+const THREAT=[
+ {id:"A1",name:"Incident History",w:30,q:"How many confirmed security incidents were recorded for this room or its office in the last 12 months? Count theft, intrusion or attempted entry, tailgating, threats and workplace violence.",
+  a:["None","1 minor incident","2 to 3 minor incidents","4 or more minor incidents, or 1 serious incident","2 or more serious incidents"],
+  d:{rule:"Count only reports closed as confirmed in the incident system. A serious incident involved injury, a weapon, a police response or a reportable loss. Everything else is minor.",ex:["No reports in 12 months → 1","One tailgating report → 2","One theft with a police report → 4"],evid:"Incident report numbers"}},
+ {id:"A2",name:"Documented Threats",w:30,q:"What is the most specific threat documented against the organization, this site or its people in the last 12 months?",
+  a:["No documented threat","Industry-wide alerts only; the organization is not named","Documented threat or protest naming the organization at another site","Documented threat or protest at this site or in this city","Specific, credible threat naming this site, this room or its occupants"],
+  d:{rule:"Use only threats recorded by Physical Security or the threat intelligence source. Choose the most specific one on record; do not rate from news or opinion.",ex:["Sector-wide alert about protests at banks → 2","Protest outside the organization's office in another state → 3","Written threat naming this building → 5"],evid:"Threat log or intelligence report reference"}},
+ {id:"A3",name:"Area Crime (CAP Index)",w:20,q:"What is the CAP Index total crime score for the facility's address? (100 = national average)",
+  a:["0 to 49 (less than half the national average)","50 to 99 (below the national average)","100 to 199 (up to 2 times the national average)","200 to 399 (2 to 4 times the national average)","400 and above (4 or more times the national average)"],
+  d:{rule:"Use the CAP Index CRIMECAST total crime score for the facility's street address, not the city or county. Record the score and the date of the report.",ex:["Score 72 → 2","Score 145 → 3","Score 260 → 4"],evid:"CAP Index report: score and date"}},
+ {id:"A4",name:"Access Population",w:20,q:"How many people currently hold access to this room in the access control system? Count employees and contractors together.",
+  a:["1 to 5 people","6 to 15 people","16 to 30 people","31 to 75 people","More than 75 people, or access is granted to a whole group or department"],
+  d:{rule:"Pull the count from the access control system for this room's readers. Count every active credential, employee or contractor, including shared and master credentials.",ex:["4 IT staff → 1","22 people, half of them contractors → 3","Access granted to the whole facilities group → 5"],evid:"Access list extract with date"}}
+];
+const CTRL=[
+ {k:"door",name:"Locked door with key control",t:{1:"Required",2:"Required",3:"Required",4:"Required"}},
+ {k:"badge",name:"Badge access with logging",t:{1:"Required",2:"Required",3:"Required"}},
+ {k:"mfa",name:"Badge plus PIN or biometric",t:{1:"Required"}},
+ {k:"alarm",name:"Door alarm (forced or held open)",t:{1:"Required",2:"Required"}},
+ {k:"cam",name:"Camera covering approach and entry",t:{1:"Required",2:"Required"}},
+ {k:"mon",name:"24/7 alarm monitoring and guard response",t:{1:"Required",2:"Required"}},
+ {k:"review",name:"Access list review",t:{1:"Every quarter",2:"Every 6 months",3:"Every year",4:"Every year"}},
+ {k:"test",name:"Control testing",t:{1:"Yearly, plus penetration test",2:"Yearly",3:"Every 3 years"}}
+];
+const TIERNAME={1:"Mission critical",2:"High",3:"Moderate",4:"Low"};
+const REVIEW={1:"every year",2:"every 2 years",3:"every 3 years",4:"every 3 years"};
+const BAND={hi:["High","Remediation plan within 90 days."],md:["Medium","Fix within 12 months, or the Business Owner signs a risk acceptance."],lo:["Low","Maintain. Confirm at the next reassessment."]};
+
+/* ======================= scoring ======================= */
+const wsum=(set,ans)=>{let s=0;for(const q of set){if(!ans[q.id])return null;s+=ans[q.id]*q.w}return s/100};
+const conf=id=>A.c[id];
+const confAns=()=>{const o={};LAUNCH.forEach(q=>{o[q.id]=conf(q.id)});return o};
+const shieldScore=ans=>{let s=0;for(const q of SHIELD){if(!ans[q.id])return null;s+=(ans[q.id]-1)/4*q.w}return s};
+const tierOf=c=>c>=4?1:c>=3?2:c>=2?3:4;
+const bandOf=r=>r>60?"hi":r>=30?"md":"lo";
+const shBand=x=>x<20?"Low":x<40?"Moderate":x<62.5?"Elevated":"High";
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const tierScore=(C,T)=>C*0.7+T*0.3;
+function scores(){
+  const Cown=wsum(LAUNCH,A.c),C=wsum(LAUNCH,confAns()),T=wsum(THREAT,A.t);
+  const TS=(C!=null&&T!=null)?tierScore(C,T):null,TSown=(Cown!=null&&T!=null)?tierScore(Cown,T):null;
+  const tc=TS==null?null:tierOf(TS),tier=tc==null?null:clamp(tc-A.adj.d,1,4);
+  const SH=A.mode==="new"?null:shieldScore(A.s),V=SH==null?null:1+SH/25;
+  const R=(C!=null&&T!=null&&V!=null)?C*T*V:null,L=(T!=null&&V!=null)?Math.sqrt(T*V):null;
+  return{Cown,C,T,TS,TSown,tc,tier,SH,V,R,L,band:R==null?null:bandOf(R)};
+}
+
+/* ======================= state ======================= */
+const today=()=>new Date().toISOString().slice(0,10);
+function newA(mode){return{mode,req:{date:today(),requestor:"",lob:"",fcc:"",room:"",owner:"",office:"",coords:""},funcs:[],other:"",desc:"",lrr:{flag:"",cite:""},acc:null,c:{},ev:{},ver:{},assessor:"",adj:{d:0,why:"",by:""},s:{},sev:{},t:{},tev:{},ctl:{},i:0,submitted:false}}
+let A=null;
+let SAVED=[];try{SAVED=JSON.parse(localStorage.getItem("psap2-saved")||"[]")}catch(e){SAVED=[]}
+const persist=()=>{try{localStorage.setItem("psap2-saved",JSON.stringify(SAVED))}catch(e){}};
+const SH_SHORT=["Prox","Entry","Time","Skill","Visual","Recog","Info","Human","Ext"];
+const shFromArr=arr=>arr.reduce((t,v,i)=>t+(v-1)/4*SHIELD[i].w,0);
+const SAMPLE=[
+ ["Data center, floor 2","Operations center",4.6,3.4,[2,3,2,2,1,4,2,3,1],0],
+ ["Telecom room","Branch office",4.4,3.8,[4,4,4,4,3,4,3,4,4],2],
+ ["Cash vault","Headquarters",4.2,3.6,[2,2,3,2,2,5,3,2,2],0],
+ ["Finance records room","Administrative office",3.6,3.0,[3,3,3,3,2,2,2,3,2],1],
+ ["Network closet 3","Branch office",3.4,2.6,[4,4,4,4,3,4,2,3,3],2],
+ ["HR file room","Headquarters",3.8,2.2,[2,3,2,3,1,2,1,2,1],0],
+ ["Executive suite","Headquarters",3.2,3.4,[3,2,3,2,4,5,4,4,2],1],
+ ["Mail and shipping","Operations center",2.6,2.4,[4,4,5,4,4,3,2,5,5],1],
+ ["IT storage cage","Administrative office",2.2,3.0,[3,4,3,4,3,3,2,3,2],0],
+ ["Supply storage","Branch office",1.6,2.0,[3,4,4,4,3,2,1,3,2],0]
+].map(([room,office,C,T,sh,gaps])=>{const SH=shFromArr(sh),V=1+SH/25;return{room,office,C,T,V,SH,sh,gaps,tier:tierOf(C*0.7+T*0.3),TS:C*0.7+T*0.3,R:C*T*V,L:Math.sqrt(T*V),example:true}});
+
+/* ======================= screens ======================= */
+function screens(){
+  const s=[{p:"req",role:"aco",k:"request"},{p:"launch",role:"aco",k:"funcs"},{p:"launch",role:"aco",k:"desc"},{p:"launch",role:"aco",k:"lrr"},{p:"launch",role:"aco",k:"acc"},
+   ...LAUNCH.map(q=>({p:"launch",role:"aco",k:"launch",q})),{p:"launch",role:"aco",k:"submit"},
+   {p:"verify",role:"as",k:"handoff"},{p:"verify",role:"as",k:"review"},...THREAT.map(q=>({p:"threat",role:"as",k:"threat",q})),{p:"tier",role:"as",k:"tier"}];
+  if(A.mode==="existing")s.push(...SHIELD.map(q=>({p:"shield",role:"as",k:"shield",q})));
+  s.push({p:"report",role:"as",k:"report"});return s;
+}
+const PHASES=()=>[["req","Request","aco"],["launch","LAUNCH","aco"],["verify","Assessor review","as"],["threat","Threat questions","as"],["tier","Tier","as"],...(A.mode==="existing"?[["shield","SHIELD","as"]]:[]),["report","Result","as"]];
+
+/* ======================= helpers ======================= */
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const f2=x=>x==null?"–":x.toFixed(2);
+const bind=(id,fn)=>{const e=$(id);if(e)e.addEventListener("input",()=>fn(e.value))};
+const ICON={newr:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M12 11v6M9 14h6"/></svg>',
+ exr:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="1"/><circle cx="15.5" cy="12" r="1"/><path d="M8 7h4"/></svg>',
+ ok:'<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>'};
+function heatHTML(mark,counts){
+  let h=`<div class="heat" role="img" aria-label="Risk heat map, criticality by likelihood">`;
+  for(let i=5;i>=1;i--){h+=`<div class="ax">${i}</div>`;for(let l=1;l<=5;l++){const b=bandOf(i*l*l),k=i+"-"+l,n=counts?counts[k]||0:0;h+=`<div class="cell c-${b}${mark===k?" me":""}" title="Criticality ${i}, likelihood ${l}: ${BAND[b][0]}">${n?`<b>${n}</b>`:""}</div>`}}
+  h+=`<div></div>${[1,2,3,4,5].map(l=>`<div class="ax">${l}</div>`).join("")}</div>`;
+  return `<div class="heatwrap"><span class="axl">↑ Criticality (LAUNCH)</span>${h}<span class="axl" style="padding-left:30px">Likelihood (threat × SHIELD) →</span><div class="legend"><span><i style="background:var(--h-lo)"></i>Low</span><span><i style="background:var(--h-md)"></i>Medium</span><span><i style="background:var(--h-hi)"></i>High</span></div></div>`;
+}
+
+/* ======================= router ======================= */
+const VIEWS=["home","process","launch","shield","tiers","baseline","leadership","governance","assess"];
+let VIEW="home",ROLE="sec";
+function applyRole(){document.querySelectorAll(".role button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.role===ROLE));document.querySelectorAll("nav.tabs button").forEach(b=>b.hidden=ROLE==="aco"&&b.dataset.view!=="home")}
+document.querySelectorAll(".role button").forEach(b=>b.onclick=()=>{ROLE=b.dataset.role;applyRole();go(VIEW==="assess"?"assess":"home")});
+function go(v){if(!VIEWS.includes(v)||(v==="assess"&&!A)||(ROLE==="aco"&&!(v==="home"||v==="assess")))v="home";applyRole();VIEW=v;document.querySelector("nav.tabs").hidden=false;
+  document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-current",b.dataset.view===v?"page":"false"));
+  ({home,process,launch:pLaunch,shield:pShield,tiers,baseline,leadership,governance,assess})[v]();
+  try{if(location.hash.slice(1)!==v)history.replaceState(null,"","#"+v)}catch(e){}window.scrollTo(0,0)}
+document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>go(b.dataset.view));
+window.addEventListener("hashchange",()=>{const h=location.hash.slice(1);if(h!==VIEW)go(h)});
+const V=html=>{$("view").innerHTML=html};
+
+/* ======================= home ======================= */
+function home(){
+  V(`<div class="hero"><div class="eyebrow">Request for Security Assessment</div><h1>Start an assessment</h1>
+   <p class="lead">The ACO, as the Subject Matter Expert (SME) for the room, completes the request and the LAUNCH questions. Physical Security reviews every answer and completes the assessment.</p></div>
+  <div class="starts">
+   <button class="start" data-mode="new"><span class="ic">${ICON.newr}</span><h2>New room assessment</h2><p>For a room or area being created or converted. No security controls in place yet.</p>
+    <ul><li>Request and LAUNCH questions (ACO)</li><li>Physical Security review and threat questions</li><li>Result: the controls to install</li></ul><span class="go">Start new room →</span></button>
+   <button class="start ex" data-mode="existing"><span class="ic">${ICON.exr}</span><h2>Existing room assessment</h2><p>For a room or area that already has controls, including reassessments.</p>
+    <ul><li>Request and LAUNCH questions (ACO)</li><li>Physical Security review and threat questions</li><li>SHIELD on site</li></ul><span class="go">Start existing room →</span></button>
+  </div>
+  ${A?`<div class="panel"><div class="eyebrow">In progress</div><p><b>${esc(A.req.room||"Unnamed room")}</b> · ${A.mode==="new"?"new room":"existing room"} · ${A.submitted?"with Physical Security":"with the ACO"}</p><div><button class="btn ghost" id="resume">Resume</button></div></div>`:""}
+  <div class="flow">${[["Request","ACO enters who, where and which room","aco"],["LAUNCH","ACO answers the criticality questions with evidence","aco"],["Physical Security review","Assessor checks evidence and answers the threat questions","as"],["SHIELD","Assessor scores exposure on site","as"],["Result","Shared with the ACO by Physical Security","as"]].map(x=>`<div class="fs${x[2]==="as"?" as":""}"><b>${x[0]}</b><span>${x[1]}</span></div>`).join("")}</div>`);
+  document.querySelectorAll(".start").forEach(b=>b.onclick=()=>{A=newA(b.dataset.mode);go("assess")});
+  if($("resume"))$("resume").onclick=()=>go("assess");
+}
+
+/* ======================= assessment flow ======================= */
+function assess(){
+  const S=screens();A.i=clamp(A.i,0,S.length-1);
+  if(ROLE==="aco"&&S[A.i].role==="as"){document.querySelector("nav.tabs").hidden=false;V(`<div class="panel"><div class="center"><span class="check">${ICON.ok}</span><div class="eyebrow">Submitted ${esc(A.req.date)}</div><h2>Your request is with Physical Security</h2>
+   <p class="lead">${esc(A.req.room)} at ${esc(A.req.office)} has been sent for review. An assessor may contact you if evidence is needed. Physical Security will share the outcome with you.</p>
+   <button class="btn" id="hm">Return home</button><p class="note">Demo: switch to Physical Security view at the top to continue as the assessor.</p></div></div>`);$("hm").onclick=()=>go("home");return}
+  const sc=S[A.i];
+  const roleScreens=S.filter(x=>x.role===sc.role),pos=roleScreens.indexOf(sc)+1,pct=Math.round(pos/roleScreens.length*100);
+  const curP=PHASES().findIndex(p=>p[0]===sc.p);
+  const top=`<div class="prog"><div class="prog-top"><b>${sc.role==="aco"?"ACO / Subject Matter Expert (SME)":"Physical Security assessor"}</b><span class="note num">${esc(A.req.room||"New request")} · ${A.mode==="new"?"New room":"Existing room"} · step ${pos} of ${roleScreens.length}</span></div>
+   <div class="bar${sc.role==="as"?" as":""}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></div>
+   <div class="phases">${PHASES().map((p,i)=>`<span class="ph${p[2]==="as"?" as":""}${i===curP?" on":i<curP?" done":""}">${p[1]}</span>`).join("")}</div></div>`;
+  document.querySelector("nav.tabs").hidden=sc.role==="aco";
+  const body=({request:sRequest,funcs:sFuncs,desc:sDesc,lrr:sLrr,acc:sAcc,launch:sLaunch,submit:sSubmit,handoff:sHandoff,review:sReview,tier:sTier,shield:sShield,threat:sThreat,report:sReport})[sc.k](sc);
+  V(top+body.html);wireNav(body.ok);body.wire&&body.wire();
+}
+function layout(role,card,det){return `<div class="qwrap"><div class="qcard">${card}</div>${det?`<aside class="details${role==="as"?" as":""}" aria-label="Details">${det}</aside>`:""}</div>`}
+function navHTML(nextLabel="Next",hideNext=false){return `<div class="nav"><button class="btn ghost" id="back">${A.i===0?"Exit":"Back"}</button>${hideNext?"":`<button class="btn" id="next">${nextLabel}</button>`}</div>`}
+function wireNav(ok){const n=$("next");if(n){n.disabled=!ok();n.onclick=()=>{A.i++;assess();window.scrollTo(0,0)}}
+  const b=$("back");if(b)b.onclick=()=>{if(A.i===0)go("home");else{A.i--;assess();window.scrollTo(0,0)}}}
+const refresh=ok=>{const n=$("next");if(n)n.disabled=!ok()};
+function det(title,what,how,ex,extra=""){return `<div class="eyebrow">Details</div><h3>${title}</h3>${what?`<p>${what}</p>`:""}${how&&how.length?`<ul>${how.map(x=>`<li>${x}</li>`).join("")}</ul>`:""}${ex&&ex.length?`<div class="ex"><b>Examples</b><br>${ex.map(esc).join("<br>")}</div>`:""}${extra}`}
+function optsHTML(key,val,anchors){return `<div class="opts" role="group">${anchors.map((t,i)=>`<button class="opt" data-k="${key}" data-v="${i+1}" aria-pressed="${val===i+1}"><b>${i+1}</b><span>${esc(t)}</span></button>`).join("")}</div>`}
+function chips(...c){return `<div class="chips">${c.filter(Boolean).join("")}</div>`}
+const roleChip=r=>`<span class="chip role${r==="as"?" as":""}">${r==="as"?"Answered by the assessor":"Answered by the ACO / SME"}</span>`;
+
+function sRequest(){
+  const r=A.req,F=[["requestor","Requestor Name","Your name"],["lob","LOB","Line of business"],["fcc","Unit Code (FCC)","e.g. 4410-220"]],R=[["room","Room Name","e.g. Server room 2B"],["owner","Business Owner","Person accountable for the room"],["office","Office Location","e.g. Administrative office"],["coords","Room Coordinates","Building, floor, room or grid"]];
+  const ok=()=>[...F,...R].every(f=>(r[f[0]]||"").trim());
+  return{ok,html:layout("aco",`${chips(roleChip("aco"),`<span class="chip">${A.mode==="new"?"New room":"Existing room"}</span>`)}<h2>PSAP 2.0 Request for Security Assessment</h2>
+   <div class="form"><label class="f" for="r-date">Request Date<input class="inp" id="r-date" value="${esc(r.date)}" readonly aria-readonly="true"></label>
+   ${F.map(f=>`<label class="f" for="r-${f[0]}">${f[1]}<input class="inp" id="r-${f[0]}" value="${esc(r[f[0]])}" placeholder="${f[2]}"></label>`).join("")}
+   <div class="formh">Room Details</div>
+   ${R.map(f=>`<label class="f" for="r-${f[0]}">${f[1]}<input class="inp" id="r-${f[0]}" value="${esc(r[f[0]])}" placeholder="${f[2]}"></label>`).join("")}</div>
+   <p class="note">All fields are required before the questions begin.</p>${navHTML("Start questions")}`,
+   det("Request details","Tells Physical Security who is asking and exactly which room.",["Request Date fills in automatically.","Unit Code (FCC) is the cost center that owns the room.","Business Owner is the person accountable for the room, who may be different from the ACO.","Room Coordinates should let someone find the room without help."],["Bldg A, Floor 2, Room 2B-114","Grid C-7 on the 3rd floor plan"])),
+   wire:()=>[...F,...R].forEach(f=>bind("r-"+f[0],v=>{r[f[0]]=v;refresh(ok)}))};
+}
+function sFuncs(){
+  const ok=()=>A.funcs.length>0&&(!A.funcs.includes(9)||A.other.trim());
+  return{ok,html:layout("aco",`${chips(roleChip("aco"),'<span class="chip">Question 1 · not scored</span>')}<h2>What functions does this room support? (Select all that apply)</h2>
+   <div class="opts">${FUNCS.map((f,i)=>`<label class="chk" for="fn${i}"><input type="checkbox" id="fn${i}" ${A.funcs.includes(i)?"checked":""}> <span>${esc(f)}</span></label>`).join("")}</div>
+   ${A.funcs.includes(9)?`<label class="f" for="fother">Other<input class="inp" id="fother" value="${esc(A.other)}" placeholder="Describe the other function"></label>`:""}${navHTML()}`,
+   det("Room functions","Every function the room supports. This is not scored. It helps the assessor plan the visit and check later answers.",["Check every box that applies, not just the main one.","Choose Other only when nothing else fits, and describe it."],["Network room with storage: Data Transmission and Data Storage","Cash vault: Safekeeping of valuables","Fire control room: Life-safety systems"])),
+   wire:()=>{FUNCS.forEach((f,i)=>$("fn"+i).onchange=e=>{A.funcs=e.target.checked?[...A.funcs,i]:A.funcs.filter(x=>x!==i);if(i===9)assess();else refresh(ok)});bind("fother",v=>{A.other=v;refresh(ok)})}};
+}
+function sDesc(){
+  const ok=()=>A.desc.trim().length>0;
+  return{ok,html:layout("aco",`${chips(roleChip("aco"),'<span class="chip">Question 2 · not scored</span>')}<h2>Describe the contents and main use of the room.</h2>
+   <label class="f" for="desc">Description<textarea class="inp" id="desc" placeholder="What is in the room, and what do people do there?">${esc(A.desc)}</textarea></label>${navHTML()}`,
+   det("Contents and use","One to three plain sentences. The assessor reads this before the site visit.",["Say what is in the room and who uses it.","Mention anything unusual, such as cash handling or after-hours work."],["Two racks of network and storage equipment for the regional office. IT staff enter about once a week for maintenance.","Locked file room holding paper HR records. HR staff use it daily."])),
+   wire:()=>bind("desc",v=>{A.desc=v;refresh(ok)})};
+}
+function sLrr(){
+  const o=[["yes","Y","Yes: requirement identified by the business or Subject Matter Expert (SME)"],["no","N","No: no known requirement"],["unk","?","Unknown: needs Security or Compliance validation"]];
+  const ok=()=>A.lrr.flag&&(A.lrr.flag!=="yes"||A.lrr.cite.trim());
+  return{ok,html:layout("aco",`${chips(roleChip("aco"),'<span class="chip">Question 3 · flag, not scored</span>')}<h2>Are there any legal, regulatory, or business requirements that require physical security measures for this room or area?</h2>
+   <div class="opts">${o.map(x=>`<button class="opt lrr" data-f="${x[0]}" aria-pressed="${A.lrr.flag===x[0]}"><b>${x[1]}</b><span>${x[2]}</span></button>`).join("")}</div>
+   ${A.lrr.flag==="yes"?`<label class="f" for="lrr">Requirement and citation<input class="inp" id="lrr" value="${esc(A.lrr.cite)}" placeholder="e.g. Records retention: access logs kept 90 days"></label>`:""}${navHTML()}`,
+   det("Legal and regulatory requirements (LRRs)","A law, regulation, contract or policy that requires physical protection for this room. A Yes adds the requirement to the room's control list.",["Name the requirement and where it comes from.","Choose Unknown if you are not sure. Compliance will confirm."],["Records retention rule: access logs kept 90 days","Card data requirements for a room holding payment data","Contract requiring escorted access for vendor equipment"])),
+   wire:()=>{document.querySelectorAll(".lrr").forEach(b=>b.onclick=()=>{A.lrr.flag=b.dataset.f;assess()});bind("lrr",v=>{A.lrr.cite=v;refresh(ok)})}};
+}
+function sAcc(){const q=Q_ACCESS,ok=()=>!!A.acc;
+  return{ok,html:layout("aco",`${chips(roleChip("aco"),'<span class="chip">Question 4 · not scored</span>')}<h2>${esc(q.q)}</h2>${optsHTML("acc",A.acc,q.a)}${navHTML()}`,det(q.name,q.d.what,q.d.how,q.d.ex)),
+   wire:()=>document.querySelectorAll(".opt").forEach(b=>b.onclick=()=>{A.acc=+b.dataset.v;assess()})}}
+function sLaunch(sc){const q=sc.q,ok=()=>!!A.c[q.id];
+  return{ok,html:layout("aco",`${chips(roleChip("aco"),`<span class="chip">Question ${q.num} of 9</span>`)}<h2>${esc(q.q)}</h2>${optsHTML(q.id,A.c[q.id],q.a)}
+   <label class="f" for="ev">Evidence (${esc(q.ev)})<input class="inp" id="ev" value="${esc(A.ev[q.id])}" placeholder="Document name, link or reference"></label>${navHTML()}`,
+   det(q.name,q.d.what,q.d.how,q.d.ex)),
+   wire:()=>{document.querySelectorAll(".opt").forEach(b=>b.onclick=()=>{A.c[q.id]=+b.dataset.v;A.ver={};assess()});bind("ev",v=>A.ev[q.id]=v)}}}
+function sSubmit(){
+  return{ok:()=>!!A.attest,html:layout("aco",`${chips(roleChip("aco"))}<h2>Review and submit to Physical Security</h2>
+   <div class="tw"><table><tbody>
+    <tr><th>Room</th><td>${esc(A.req.room)} · ${esc(A.req.office)}${A.req.coords?" · "+esc(A.req.coords):""}</td></tr>
+    <tr><th>Requestor</th><td>${esc(A.req.requestor)}${A.req.lob?" · "+esc(A.req.lob):""}${A.req.fcc?" · FCC "+esc(A.req.fcc):""}</td></tr>
+    <tr><th>Business Owner</th><td>${esc(A.req.owner||"Not entered")}</td></tr>
+    <tr><th>1 · Functions</th><td>${A.funcs.map(i=>i===9?"Other: "+esc(A.other):esc(FUNCS[i])).join("; ")}</td></tr>
+    <tr><th>2 · Contents and use</th><td>${esc(A.desc)}</td></tr>
+    <tr><th>3 · Requirement</th><td>${A.lrr.flag==="yes"?esc(A.lrr.cite):A.lrr.flag==="unk"?"Unknown":"None known"}</td></tr>
+    <tr><th>4 · Routine Access</th><td>${A.acc} · ${esc(Q_ACCESS.a[A.acc-1])}</td></tr>
+    ${LAUNCH.map(q=>`<tr><th>${q.num} · ${q.name}</th><td><b>${A.c[q.id]}</b> · ${esc(q.a[A.c[q.id]-1])}<br><span class="note">Evidence: ${esc(A.ev[q.id]||"none")}</span></td></tr>`).join("")}
+   </tbody></table></div>
+   <label class="chk" for="att"><input type="checkbox" id="att" ${A.attest?"checked":""}> <span>I attest that these answers are accurate to the best of my knowledge and are supported by the evidence listed. <b>${esc(A.req.requestor)}</b>, ${esc(A.req.date)}</span></label>
+   <p class="note">Use Back to change any answer before you submit.</p>${navHTML("Submit to Physical Security")}`,
+   det("What happens next","Your request goes to a Physical Security assessor.",["Your attestation is recorded with your name and date.","The assessor reviews only answers that contradict each other.","They may contact you if evidence is missing.","For an existing room, the assessor then visits the site."])),
+   wire:()=>{$("att").onchange=e=>{A.attest=e.target.checked;A.attestDate=A.req.date;$("next").disabled=!A.attest};$("next").onclick=()=>{if(!A.attest)return;A.submitted=true;A.i++;assess();window.scrollTo(0,0)}}};
+}
+function sHandoff(){
+  const ok=()=>A.assessor.trim().length>0;
+  return{ok,html:layout("as",`<div class="center"><span class="check">${ICON.ok}</span><div class="eyebrow">Submitted and attested ${esc(A.req.date)}</div><h2>Request received by Physical Security</h2>
+   <p class="lead">${esc(A.req.room)} at ${esc(A.req.office)} is ready for assessor review. The assessor checks the LAUNCH answers on one screen, then answers four threat questions. Together they set the tier.</p>
+   <label class="f" for="asr" style="width:100%;max-width:360px">Assessor name<input class="inp" id="asr" value="${esc(A.assessor)}" placeholder="Name"></label></div>${navHTML("Begin assessor review")}`,
+   det("Assessor review","Physical Security owns the tier. For each LAUNCH answer you will:",["One screen shows every scored LAUNCH answer with its evidence.","The tool flags only answers that contradict each other.","Accept, or return an answer to the ACO with a note.","Then answer four threat questions.","Tier = LAUNCH × 70% + threat questions × 30%."],[],'<p class="note">In a live system this step arrives in the assessor\'s queue. Here it continues on the same screen.</p>')),
+   wire:()=>bind("asr",v=>{A.assessor=v;refresh(ok)})};
+}
+function flags(){
+  const f=[],F=A.funcs,c=A.c,add=(ids,msg)=>f.push({ids,msg});
+  if(F.some(i=>[0,2,3,5,7,8].includes(i))&&c.Q5<=2)add(["Q5"],`Question 1 lists critical functions for this room, but Asset Type is rated ${c.Q5}.`);
+  if(c.Q6>=4&&c.Q5<=2)add(["Q5","Q6"],`Business Dependency is rated ${c.Q6}, but Asset Type is rated ${c.Q5}.`);
+  if(F.some(i=>[3,4].includes(i))&&c.Q8<=2)add(["Q8"],`The room holds data or sensitive operations, but Unauthorized Access Impact is rated ${c.Q8}.`);
+  if(A.lrr.flag==="yes"&&c.Q8<=2)add(["Q8"],`A legal or regulatory requirement was identified, but Unauthorized Access Impact is rated ${c.Q8}.`);
+  if(A.acc===1&&c.Q8>=4)add(["Q8"],`Unauthorized Access Impact is rated ${c.Q8}, but Routine Access says there are no access restrictions.`);
+  if(c.Q7<=2&&c.Q9>=4)add(["Q7","Q9"],`Recovery is rated fast (${c.Q7}), but Backup says there is little or no redundancy (${c.Q9}).`);
+  if(c.Q7>=4&&c.Q9<=2)add(["Q7","Q9"],`Backup is rated high redundancy (${c.Q9}), but Recovery is rated a month or more (${c.Q7}).`);
+  return f;
+}
+function sReview(){
+  const fl=flags(),fq=id=>fl.filter(x=>x.ids.includes(id));
+  LAUNCH.forEach(q=>{if(!A.ver[q.id])A.ver[q.id]={v:fq(q.id).length?"":"accept",why:""}});
+  const ok=()=>LAUNCH.every(q=>{const x=A.ver[q.id];return x.v==="accept"||(x.v==="return"&&x.why.trim())});
+  const nRet=LAUNCH.filter(q=>A.ver[q.id].v==="return").length;
+  return{ok,html:layout("as",`${chips(roleChip("as"),`<span class="chip">${fl.length} flag${fl.length===1?"":"s"}</span>`)}<h2>Review the LAUNCH answers</h2>
+   <p class="note">The ACO/SME attested to these answers on ${esc(A.attestDate||A.req.date)}. You are not re-answering them. Only answers that contradict each other are flagged; everything else is already accepted.</p>
+   ${fl.length?`<div class="box" style="border-color:var(--md);background:var(--md-bg)"><span class="k" style="color:var(--md)">Flagged for review</span>${fl.map(x=>`<span>• ${esc(x.msg)}</span>`).join("")}</div>`
+    :`<div class="box" style="border-color:var(--lo);background:var(--lo-bg)"><span class="k" style="color:var(--lo)">No flags</span><span>The answers are consistent. Accept all to continue.</span></div>`}
+   <div>${LAUNCH.map(q=>{const x=A.ver[q.id],f=fq(q.id);return `<div class="ctl"${f.length?' style="border-left:4px solid var(--md);padding-left:12px"':""}><div><b>${q.num} · ${esc(q.name)}: ${A.c[q.id]}</b><small>${esc(q.a[A.c[q.id]-1])}</small><small>Evidence: ${esc(A.ev[q.id]||"none attached")}</small></div>
+    <div class="seg" role="group" aria-label="Decision for ${esc(q.name)}"><button data-q="${q.id}" data-v="accept" aria-pressed="${x.v==="accept"}" style="${x.v==="accept"?"background:var(--lo);color:var(--panel)":""}">Accept</button><button data-q="${q.id}" data-v="return" aria-pressed="${x.v==="return"}" style="${x.v==="return"?"background:var(--hi);color:var(--panel)":""}">Return to ACO</button></div>
+    ${x.v==="return"?`<label class="f" for="w-${q.id}" style="grid-column:1/-1">What the ACO needs to fix or provide<input class="inp" id="w-${q.id}" value="${esc(x.why)}" placeholder="e.g. Attach the BCP recovery section"></label>`:""}</div>`}).join("")}</div>
+   <div class="nav"><button class="btn ghost" id="back">Back</button><span style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn ghost" id="all">Accept all</button><button class="btn" id="next">${nRet?"Next (tier stays open)":"Next: threat questions"}</button></span></div>`,
+   det("How to review","The ACO/SME knows the room best. Your check is about evidence and consistency, not a second opinion.",["Flags appear only when two answers contradict each other.","Accept an answer when its evidence supports it.","Return it only if a flag can't be explained. The tier stays open until the ACO responds.","A flag is not automatically wrong. If the evidence explains it, accept it."],["Data Storage is checked but Asset Type is 1: ask whether the storage is regulated data.","Recovery within hours but no redundancy: ask how recovery happens without a backup."])),
+   wire:()=>{document.querySelectorAll(".seg button[data-q]").forEach(b=>b.onclick=()=>{A.ver[b.dataset.q].v=b.dataset.v;const y=scrollY;assess();scrollTo(0,y)});
+    LAUNCH.forEach(q=>bind("w-"+q.id,v=>{A.ver[q.id].why=v;refresh(ok)}));
+    $("all").onclick=()=>{LAUNCH.forEach(q=>A.ver[q.id]={v:"accept",why:""});const y=scrollY;assess();scrollTo(0,y)}}};
+}
+function sTier(){
+  const X=scores(),ret=LAUNCH.filter(q=>A.ver[q.id]?.v==="return");
+  const ok=()=>!ret.length&&(!A.adj.d||(A.adj.why.trim()&&A.adj.by.trim()));
+  return{ok,html:layout("as",`${chips(roleChip("as"))}<h2>Tier result</h2>
+   ${ret.length?`<p class="note" style="color:var(--hi)">${ret.map(q=>q.name).join(", ")} ${ret.length>1?"were":"was"} returned to the ACO. The tier stays open until ${ret.length>1?"they are":"it is"} answered. Use Back to change the review result.</p>`:""}
+   <div class="verdict">
+    <div class="v" style="border-left-color:var(--accent)"><span class="k">LAUNCH · ACO/SME · 70%</span><span class="big num">${X.C.toFixed(2)}</span><span class="d">Attested by the ACO/SME, accepted by the assessor</span></div>
+    <div class="v" style="border-left-color:var(--teal)"><span class="k">Threat questions · 30%</span><span class="big num">${X.T.toFixed(2)}</span><span class="d">Answered by the assessor</span></div>
+    <div class="v t${X.tier}"><span class="k">Final tier</span><span class="big">Tier ${X.tier}</span><span class="d">Tier score <span class="num">${X.TS.toFixed(2)}</span> · ${TIERNAME[X.tier]}${A.adj.d?` · moved ${A.adj.d>0?"up":"down"} one level`:""}</span></div></div>
+   <div class="formula">${X.C.toFixed(2)} × 0.7 + ${X.T.toFixed(2)} × 0.3 = ${X.TS.toFixed(2)} → Tier ${X.tc}</div>
+   <div class="eyebrow">Move the tier one level (documented exception)</div>
+   <div class="adj" role="group" aria-label="Tier adjustment"><button data-d="1" aria-pressed="${A.adj.d===1}">Up one level</button><button data-d="0" aria-pressed="${A.adj.d===0}">No change</button><button data-d="-1" aria-pressed="${A.adj.d===-1}">Down one level</button></div>
+   ${A.adj.d?`<div class="form"><label class="f" for="aw">Reason<input class="inp" id="aw" value="${esc(A.adj.why)}"></label><label class="f" for="ab">Approver<input class="inp" id="ab" value="${esc(A.adj.by)}"></label></div>`:""}
+   ${navHTML(A.mode==="new"?"See the result":"Continue to SHIELD")}`,
+   det("How the tier is set","The tier combines the ACO/SME's LAUNCH answers with the assessor's threat questions.",["LAUNCH = Q5×0.20 + Q6×0.25 + Q7×0.20 + Q8×0.25 + Q9×0.10","Threat = A1×0.30 + A2×0.30 + A3×0.20 + A4×0.20","Tier score = LAUNCH × 0.7 + Threat × 0.3","4.00 and above: Tier 1 · 3.00–3.99: Tier 2 · 2.00–2.99: Tier 3 · below 2.00: Tier 4","Move one level only for a documented factor, with a named approver."],[])),
+   wire:()=>{document.querySelectorAll(".adj button").forEach(b=>b.onclick=()=>{A.adj.d=+b.dataset.d;assess()});bind("aw",v=>{A.adj.why=v;refresh(ok)});bind("ab",v=>{A.adj.by=v;refresh(ok)})}};
+}
+function siteQ(sc,store,evs,label,idx,of){const q=sc.q,ok=()=>!!store[q.id];
+  return{ok,html:layout("as",`${chips(roleChip("as"),`<span class="chip">${label} ${idx} of ${of} · ${q.w}${label==="SHIELD"?" pts":"% of threat score"}</span>`)}<h2>${esc(q.q)}</h2>${optsHTML(q.id,store[q.id],q.a)}
+   <label class="f" for="ev">Evidence (${esc(q.d.evid)})<input class="inp" id="ev" value="${esc(evs[q.id])}" placeholder="Photo, record or reference"></label>${navHTML((()=>{const n=screens()[A.i+1];return n.k==="tier"?"Calculate tier":n.k==="report"?"See the result":"Next"})())}`,
+   det(q.name,"",[`<b>Scoring rule:</b> ${esc(q.d.rule)}`,`<b>Evidence:</b> ${esc(q.d.evid)}`],q.d.ex)),
+   wire:()=>{document.querySelectorAll(".opt").forEach(b=>b.onclick=()=>{store[q.id]=+b.dataset.v;assess()});bind("ev",v=>evs[q.id]=v)}}}
+const sShield=sc=>siteQ(sc,A.s,A.sev,"SHIELD",SHIELD.indexOf(sc.q)+1,SHIELD.length);
+const sThreat=sc=>siteQ(sc,A.t,A.tev,"Threat question",THREAT.indexOf(sc.q)+1,THREAT.length);
+
+function ctlRows(t){const r=CTRL.filter(c=>c.t[t]).map(c=>({k:c.k,name:c.name,req:c.t[t]}));
+  if(A.lrr.flag==="yes"&&A.lrr.cite.trim())r.push({k:"lrr",name:A.lrr.cite,req:"Legal / regulatory requirement"});
+  r.forEach(x=>{if(!A.ctl[x.k])A.ctl[x.k]=A.mode==="new"?"Gap":"Met"});return r}
+function sReport(){
+  const X=scores(),t=X.tier,R=ctlRows(t),isNew=A.mode==="new";
+  const gaps=R.filter(r=>A.ctl[r.k]==="Gap").length,exc=R.filter(r=>A.ctl[r.k]==="Exception").length;
+  const iRow=clamp(Math.round(X.C),1,5),lCol=X.L==null?null:clamp(Math.round(X.L),1,5);
+  const html=`<div class="panel"><div class="eyebrow">Assessment result · ${isNew?"new room":"existing room"} · ${esc(A.req.date)}</div><h2 style="font-size:clamp(26px,4vw,34px)">${esc(A.req.room)}</h2>
+   <p class="note">${[A.req.office,A.req.coords,"Requestor (ACO): "+A.req.requestor,A.req.owner&&"Business Owner: "+A.req.owner,"Assessor: "+A.assessor].filter(Boolean).map(esc).join(" · ")}</p>
+   <div class="verdict">
+    <div class="v t${t}"><span class="k">Tier</span><span class="big">Tier ${t}</span><span class="d">${TIERNAME[t]}. Tier score <span class="num">${X.TS.toFixed(2)}</span>. Reassess ${REVIEW[t]}.</span></div>
+    ${isNew?`<div class="v na"><span class="k">SHIELD and risk</span><span class="big">After install</span><span class="d">Install the controls below, then run an existing room assessment.</span></div>`
+    :`<div class="v ${X.band}"><span class="k">Risk score</span><span class="big num">${Math.round(X.R)}<span style="font-size:17px;color:var(--muted)"> / 125</span></span><span class="d"><span class="pill p-${X.band}">${BAND[X.band][0]}</span> ${BAND[X.band][1]}</span></div>
+     <div class="v" style="border-left-color:var(--teal)"><span class="k">SHIELD exposure</span><span class="big">${shBand(X.SH)}</span><span class="d"><span class="num">${X.SH.toFixed(1)}</span> of 100</span></div>`}
+   </div></div>
+  ${isNew?"":`<div class="panel"><div class="two">${heatHTML(iRow+"-"+lCol)}<div class="prose"><h3 style="font-size:19px">Where this room sits</h3>
+   <p>Criticality <b class="num">${X.C.toFixed(1)}</b> and likelihood <b class="num">${X.L.toFixed(1)}</b> place the room in the <b>${BAND[bandOf(iRow*lCol*lCol)][0].toLowerCase()}</b> zone.</p>
+   <p class="note">Likelihood combines the threat questions (${X.T.toFixed(2)}) and SHIELD exposure (${X.V.toFixed(2)} of 5). Cell colors use the same bands as the risk score.</p>
+   ${(()=>{const d=[...SHIELD,...THREAT].filter(q=>(A.s[q.id]||A.t[q.id])>=4);return d.length?`<p><b>Driving the risk:</b> ${d.map(q=>`${esc(q.name)} (${A.s[q.id]||A.t[q.id]})`).join(", ")}.</p>`:"<p>No SHIELD or threat factor scored 4 or 5.</p>"})()}</div></div></div>`}
+  <div class="panel"><div class="eyebrow">Tier ${t} baseline · ${R.length-gaps-exc} met · ${gaps} gap${gaps===1?"":"s"} · ${exc} exception${exc===1?"":"s"}</div><h3 style="font-size:20px">Required controls</h3>
+   <p class="note">${isNew?"Every control starts as a gap to install.":"Mark each control. Each gap becomes a finding with an owner and a due date."}</p>
+   <div>${R.map(r=>`<div class="ctl"><div><b>${esc(r.name)}</b><small>${esc(r.req)}</small></div><div class="seg" role="group" aria-label="Status for ${esc(r.name)}">${["Met","Gap","Exception"].map(v=>`<button data-c="${r.k}" data-v="${v}" aria-pressed="${A.ctl[r.k]===v}">${v}</button>`).join("")}</div></div>`).join("")}</div></div>
+  <div class="panel"><h3 style="font-size:20px">Audit record</h3><div class="tw"><table><tbody>
+   <tr><th>LAUNCH (ACO)</th><td class="num">${LAUNCH.map(q=>`${q.id} ${A.c[q.id]}×${q.w/100}`).join(" + ")} = ${X.Cown.toFixed(2)}</td></tr>
+   <tr><th>Attestation</th><td>${esc(A.req.requestor)} attested ${esc(A.attestDate||A.req.date)}</td></tr>
+   <tr><th>Assessor review</th><td>${flags().length} flag${flags().length===1?"":"s"} reviewed; all answers accepted by ${esc(A.assessor)}${flags().length?"<br>"+flags().map(f=>esc(f.msg)).join("<br>"):""}</td></tr>
+   <tr><th>Threat questions</th><td class="num">${THREAT.map(q=>`${q.id} ${A.t[q.id]}×${q.w/100}`).join(" + ")} = ${X.T.toFixed(2)}</td></tr>
+   <tr><th>Tier score</th><td class="num">${X.C.toFixed(2)} × 0.7 + ${X.T.toFixed(2)} × 0.3 = ${X.TS.toFixed(2)}</td></tr>
+   <tr><th>Tier</th><td>Calculated Tier ${X.tc}${A.adj.d?`, moved to Tier ${t}: ${esc(A.adj.why)} (approved by ${esc(A.adj.by)})`:""}</td></tr>
+   ${isNew?"":`<tr><th>SHIELD</th><td class="num">${SHIELD.map(q=>`${q.id} ${A.s[q.id]}`).join(" · ")} → ${X.SH.toFixed(1)} / 100</td></tr>
+   <tr><th>Risk</th><td class="num">${X.C.toFixed(2)} × ${X.T.toFixed(2)} × ${X.V.toFixed(2)} = ${X.R.toFixed(1)}</td></tr>`}
+   <tr><th>Requirement</th><td>${A.lrr.flag==="yes"?esc(A.lrr.cite):A.lrr.flag==="unk"?"Unknown: open with Compliance":"None known"}</td></tr>
+  </tbody></table></div>
+  <div class="nav" style="justify-content:flex-start"><button class="btn ghost" id="back">Back</button><button class="btn" id="save">Save to Leadership view</button><button class="btn ghost" id="copy">Copy summary</button><button class="btn ghost" id="home">Home</button><span class="toast" id="toast" role="status"></span></div></div>`;
+  return{ok:()=>true,html,wire:()=>{
+    document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{A.ctl[b.dataset.c]=b.dataset.v;const y=scrollY;assess();scrollTo(0,y)});
+    $("save").onclick=()=>{const row={room:A.req.room,office:A.req.office,C:X.C,T:X.T,V:X.V,SH:X.SH,sh:SHIELD.map(q=>A.s[q.id]),gaps,tier:t,TS:X.TS,R:X.R,L:X.L};SAVED=SAVED.filter(r=>!(r.room===row.room&&r.office===row.office));SAVED.unshift(row);persist();$("toast").textContent="Saved on this device."};
+    $("copy").onclick=async()=>{const txt=[`PSAP 2.0 assessment: ${A.req.room} (${A.req.office})`,`Date ${A.req.date} · Assessor ${A.assessor}`,`Tier ${t} (${TIERNAME[t]}), tier score ${X.TS.toFixed(2)} = LAUNCH ${X.C.toFixed(2)} × 0.7 + threat ${X.T.toFixed(2)} × 0.3`,
+      isNew?"SHIELD and risk: after install":`Risk ${Math.round(X.R)}/125 ${BAND[X.band][0]}; SHIELD ${X.SH.toFixed(1)} ${shBand(X.SH)}`,
+      `Controls: ${R.length-gaps-exc} met, ${gaps} gaps, ${exc} exceptions`,...R.filter(r=>A.ctl[r.k]!=="Met").map(r=>`- ${A.ctl[r.k]}: ${r.name}`)].join("\n");
+      try{await navigator.clipboard.writeText(txt);$("toast").textContent="Summary copied."}catch(e){$("toast").textContent="Copy was blocked. Select the audit record and copy it."}};
+    $("home").onclick=()=>go("home");
+  }};
+}
+
+/* ======================= reference tabs ======================= */
+function page(eyebrow,title,lead,body){V(`<div class="panel"><div class="eyebrow">${eyebrow}</div><h1 style="font-size:clamp(26px,4vw,36px)">${title}</h1>${lead?`<p class="lead">${lead}</p>`:""}${body}</div>`)}
+function process(){page("Process","How an assessment moves","Each step has one owner. The ACO describes the room; Physical Security owns the tier and the site assessment.",
+ `<div class="flow">${[["1. Request","ACO","Requestor, LOB, FCC and room details.","aco"],["2. LAUNCH","ACO / SME","Four context questions and five scored questions with evidence, then a signed attestation.","aco"],["3. Assessor review","Assessor","One screen: the tool flags only contradictions; accept or return.","as"],["4. Threat questions","Assessor","Incidents and documented threats in 12 months, CAP Index crime score, access population.","as"],["5. Tier","Assessor","LAUNCH × 70% + threat × 30%; one-level move only with approval.","as"],["6. SHIELD","Assessor on site","Nine exposure factors with photo or record evidence. Existing rooms only.","as"],["7. Result","All","Risk score, heat map, required controls and gaps.","as"]].map(x=>`<div class="fs${x[3]==="as"?" as":""}"><b>${x[0]}</b><span><b>${x[1]}</b></span><span>${x[2]}</span></div>`).join("")}</div>
+ <p class="note">New rooms stop after the tier: the result lists the controls to install. SHIELD runs once the room is built.</p>`)}
+function pLaunch(){page("LAUNCH","Criticality questions","Answered by the ACO/SME with evidence and a signed attestation, then checked by the assessor. Questions 1 to 4 give context and are not scored. LAUNCH is 70% of the tier score.",
+ `<div class="tw"><table class="minw"><thead><tr><th>#</th><th>Question</th><th class="r">Weight</th></tr></thead><tbody>
+ <tr><td>1</td><td>What functions does this room support? (Select all that apply)</td><td class="r">Context</td></tr><tr><td>2</td><td>Describe the contents and main use of the room.</td><td class="r">Context</td></tr>
+ <tr><td>3</td><td>Are there any legal, regulatory, or business requirements that require physical security measures for this room or area?</td><td class="r">Flag</td></tr><tr><td>4</td><td>${esc(Q_ACCESS.q)}</td><td class="r">Context</td></tr>
+ ${LAUNCH.map(q=>`<tr><td>${q.num}</td><td><b>${q.name}.</b> ${esc(q.q)}</td><td class="r num">${q.w}%</td></tr>`).join("")}</tbody></table></div>
+ <div class="formula">Criticality = Q5×0.20 + Q6×0.25 + Q7×0.20 + Q8×0.25 + Q9×0.10   (each answer 1–5)</div>`)}
+function pShield(){page("SHIELD","Exposure factors","Scored on site by the assessor. Each factor earns part of its points from 1 (lowest exposure) to 5 (highest). SHIELD never changes the tier.",
+ `<div class="tw"><table class="minw"><thead><tr><th>Factor</th><th>Scoring rule</th><th class="r">Points</th></tr></thead><tbody>${SHIELD.map(q=>`<tr><td><b>${q.name}</b></td><td>${esc(q.d.rule)}</td><td class="r num">${q.w}</td></tr>`).join("")}</tbody></table></div>
+ <div class="formula">SHIELD = Σ (answer − 1) ÷ 4 × points   (0–100)</div><p>Low under 20 · Moderate 20 to under 40 · Elevated 40 to under 62.5 · High 62.5 and above.</p>`)}
+function tiers(){page("Tiers","Tier definitions","The tier fixes what a room must have. It combines the ACO/SME's LAUNCH answers (70%) with the assessor's four threat questions (30%). SHIELD never changes the tier.",
+ `<div class="verdict">${[1,2,3,4].map(t=>`<div class="v t${t}"><span class="k">${t===1?"4.00 and above":t===2?"3.00 to 3.99":t===3?"2.00 to 2.99":"Below 2.00"}</span><span class="big">Tier ${t}</span><span class="d">${TIERNAME[t]}. Reassess ${REVIEW[t]}.</span></div>`).join("")}</div>
+ <div class="formula">Tier score = LAUNCH × 0.7 + Threat × 0.3</div>
+ <div class="tw"><table class="minw"><thead><tr><th>Threat question (assessor)</th><th class="r">Weight</th></tr></thead><tbody>${THREAT.map(q=>`<tr><td><b>${q.id} · ${q.name}.</b> ${esc(q.q)}</td><td class="r num">${q.w}%</td></tr>`).join("")}</tbody></table></div>
+ <p>The assessor may move a tier one level for a documented factor the questions miss. A reason and a named approver are required.</p>`)}
+function baseline(){page("Baseline","Required controls by tier","Controls are cumulative. Each is Met, a Gap with an owner and due date, or an approved Exception. LRR requirements are added to the room's list.",
+ `<div class="tw"><table class="minw"><thead><tr><th>Control</th>${[1,2,3,4].map(t=>`<th class="c${t}">Tier ${t}</th>`).join("")}</tr></thead><tbody>${CTRL.map(c=>`<tr><td><b>${c.name}</b></td>${[1,2,3,4].map(t=>`<td>${c.t[t]||"–"}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`)}
+let LT="all",LS={k:"R",d:-1};
+function leadership(){
+  const all=[...SAVED,...SAMPLE].filter(r=>r.R!=null).map(r=>({...r,band:bandOf(r.R)}));
+  const rows=LT==="all"?all:all.filter(r=>r.tier===+LT);
+  const counts={};rows.forEach(r=>{const k=clamp(Math.round(r.C),1,5)+"-"+clamp(Math.round(r.L),1,5);counts[k]=(counts[k]||0)+1});
+  const avg=(a,f)=>a.length?a.reduce((t,r)=>t+f(r),0)/a.length:null;
+  const summ=[1,2,3,4].map(t=>{const g=all.filter(r=>r.tier===t);return{t,n:g.length,ts:avg(g,r=>r.TS),risk:avg(g,r=>r.R),sh:avg(g,r=>r.SH),hi:g.filter(r=>r.band==="hi").length,md:g.filter(r=>r.band==="md").length,lo:g.filter(r=>r.band==="lo").length,gaps:g.reduce((x,r)=>x+(r.gaps||0),0)}});
+  const key=(r,k)=>k==="room"?r.room:k==="tier"?r.tier:k==="R"?r.R:k==="SH"?r.SH:k==="gaps"?(r.gaps||0):(r.sh?r.sh[+k]:0);
+  const sorted=[...rows].sort((a,b)=>{const x=key(a,LS.k),y=key(b,LS.k);return typeof x==="string"?LS.d*x.localeCompare(y):LS.d*(x-y)});
+  const ar=k=>LS.k===k?(LS.d<0?" ▼":" ▲"):"";
+  const hv=v=>v<=2?"var(--h-lo)":v===3?"var(--h-md)":"var(--h-hi)";
+  const fav=SH_SHORT.map((_,i)=>avg(rows.filter(r=>r.sh),r=>r.sh[i]));
+  page("Leadership","Where to invest first","Compare tiers side by side, then drill into one tier factor by factor. The tier says what each room must have. Risk and SHIELD factors show where to spend first.",
+  `<p class="note"><span class="tag">Example</span> Rooms marked Example are sample data. Rooms saved from a result appear here on this device.</p>
+  <h3 style="font-size:20px">Tier comparison</h3>
+  <div class="tw"><table class="minw"><thead><tr><th>Tier</th><th class="r">Rooms</th><th class="r">Avg tier score</th><th class="r">Avg risk</th><th class="r">Avg SHIELD</th><th>Risk bands</th><th class="r">Open gaps</th></tr></thead><tbody>
+  ${summ.map(x=>`<tr><td class="c${x.t}"><b>Tier ${x.t}</b> <span class="note">${TIERNAME[x.t]}</span></td><td class="r num">${x.n}</td><td class="r num">${f2(x.ts)}</td><td class="r num">${x.risk==null?"–":Math.round(x.risk)}</td><td class="r num">${x.sh==null?"–":x.sh.toFixed(1)}</td>
+   <td>${x.n?`<span class="pill p-hi">${x.hi} High</span> <span class="pill p-md">${x.md} Med</span> <span class="pill p-lo">${x.lo} Low</span>`:"–"}</td><td class="r num">${x.gaps}</td></tr>`).join("")}</tbody></table></div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="eyebrow">Show</span><div class="adj" role="group" aria-label="Tier shown">${["all",1,2,3,4].map(t=>`<button data-lt="${t}" aria-pressed="${String(LT)===String(t)}">${t==="all"?"All tiers":"Tier "+t}</button>`).join("")}</div></div>
+  <div class="two">${heatHTML(null,counts)}<div class="prose"><h3 style="font-size:19px">${LT==="all"?"All tiers":"Tier "+LT}: ${rows.length} room${rows.length===1?"":"s"}</h3><p>Each number is the count of rooms in that cell. Upper right is where loss would hurt most and an attempt is most likely.</p>
+   <p>${["hi","md","lo"].map(b=>`<span class="pill p-${b}">${BAND[b][0]}: ${rows.filter(r=>r.band===b).length}</span>`).join(" ")}</p></div></div>
+  <h3 style="font-size:20px">SHIELD factors by room</h3><p class="note">Click a column heading to sort. 1–2 lower exposure, 3 moderate, 4–5 higher exposure. High Entry and Time point to hardening and detection; high Human and Ext point to visitor management and opening protection.</p>
+  <div class="tw"><table style="min-width:900px"><thead><tr><th style="cursor:pointer" data-sk="room">Room${ar("room")}</th><th style="cursor:pointer" data-sk="tier">Tier${ar("tier")}</th>${SH_SHORT.map((n,i)=>`<th class="r" style="cursor:pointer" data-sk="${i}" title="${esc(SHIELD[i].name)}">${n}${ar(String(i))}</th>`).join("")}<th class="r" style="cursor:pointer" data-sk="SH">SHIELD${ar("SH")}</th><th class="r" style="cursor:pointer" data-sk="R">Risk${ar("R")}</th><th class="r" style="cursor:pointer" data-sk="gaps">Gaps${ar("gaps")}</th></tr></thead><tbody>
+  ${sorted.map(r=>`<tr><td><b>${esc(r.room)}</b>${r.example?' <span class="tag">Example</span>':""}<br><span class="note">${esc(r.office)}</span></td><td class="c${r.tier}" style="white-space:nowrap"><b>Tier ${r.tier}</b></td>
+   ${SH_SHORT.map((_,i)=>{const v=r.sh?r.sh[i]:null;return `<td class="r num" style="${v?`background:${hv(v)}`:""}">${v??"–"}</td>`}).join("")}
+   <td class="r num">${r.SH==null?"–":r.SH.toFixed(0)}<br><span class="note">${r.SH==null?"":shBand(r.SH)}</span></td><td class="r"><span class="pill p-${r.band}">${Math.round(r.R)}</span></td><td class="r num">${r.gaps||0}</td></tr>`).join("")||`<tr><td colspan="14">No rooms in this tier yet.</td></tr>`}
+  ${rows.length?`<tr><td><b>${LT==="all"?"Average":"Tier "+LT+" average"}</b></td><td></td>${fav.map(v=>`<td class="r num" style="${v!=null?`background:${hv(Math.round(v))}`:""}"><b>${v==null?"–":v.toFixed(1)}</b></td>`).join("")}<td class="r num"><b>${avg(rows,r=>r.SH).toFixed(0)}</b></td><td class="r num"><b>${Math.round(avg(rows,r=>r.R))}</b></td><td class="r num"><b>${rows.reduce((x,r)=>x+(r.gaps||0),0)}</b></td></tr>`:""}
+  </tbody></table></div>
+  ${SAVED.length?`<div><button class="btn ghost" id="clr">Remove my saved rooms</button></div>`:""}`);
+  document.querySelectorAll("[data-lt]").forEach(b=>b.onclick=()=>{LT=b.dataset.lt;const y=scrollY;leadership();scrollTo(0,y)});
+  document.querySelectorAll("[data-sk]").forEach(h=>h.onclick=()=>{const k=h.dataset.sk;if(LS.k===k)LS.d*=-1;else{LS.k=k;LS.d=k==="room"?1:-1}const y=scrollY;leadership();scrollTo(0,y)});
+  if($("clr"))$("clr").onclick=()=>{SAVED=[];persist();leadership()};
+}
+function governance(){page("Governance","Roles, evidence and approvals","",
+ `<div class="tw"><table class="minw"><thead><tr><th>Role</th><th>Responsibility</th></tr></thead><tbody>
+  <tr><td><b>ACO / Subject Matter Expert (SME)</b></td><td>Submits the request, answers LAUNCH with evidence and attests that the answers are accurate. Keeps the access list current.</td></tr>
+  <tr><td><b>Business Owner</b></td><td>Accountable for the room. Signs risk acceptances for Medium findings not fixed within 12 months.</td></tr>
+  <tr><td><b>Physical Security assessor</b></td><td>Reviews flagged LAUNCH answers, and completes SHIELD on site.</td></tr>
+  <tr><td><b>Physical Security assessor</b></td><td>Answers the four threat questions (30% of the tier) from incident, threat, CAP Index and access records.</td></tr>
+  <tr><td><b>STAT</b></td><td>Selects, installs and tests controls to close gaps.</td></tr>
+  <tr><td><b>PSD / AVP</b></td><td>Approve exceptions and any one-level tier move.</td></tr></tbody></table></div>
+ <div class="prose"><p><b>Evidence.</b> The ACO/SME lists supporting evidence where it exists and attests to the answers. The assessor reviews only answers that contradict each other.</p>
+ <p><b>Risk bands.</b> Over 60 is High: remediation plan within 90 days. 30 to 60 is Medium: fix within 12 months or a signed risk acceptance. Under 30 is Low: maintain.</p>
+ <div class="formula">Tier score = LAUNCH × 0.7 + Threat × 0.3 · Risk = LAUNCH × Threat × (1 + SHIELD ÷ 25)   (1–125)</div>
+ <p class="note">Weights, cutoffs, bands and the control baseline are proposed values for pilot and leadership approval.</p></div>`)}
+
+let start="home";try{start=location.hash.slice(1)||"home"}catch(e){}
+go(start);
+</script>
+</body>
+</html>
