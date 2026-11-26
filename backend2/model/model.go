@@ -33,6 +33,8 @@ func GenErrEvent(source, sourceType string, severity string, err error, attrs ma
 	}
 }
 
+//******* Independent models ********
+
 type Worker struct {
 	ID           string `json:"id" db:"ID"`
 	Name         string `json:"name" db:"NAME"`
@@ -43,8 +45,6 @@ type Worker struct {
 	UpdatedBy    string `json:"updatedBy" db:"UPDATED_BY"`
 	UpdatedAt    string `json:"updatedAt" db:"UPDATED_AT"`
 }
-
-//******* Independent related models ********
 
 type TierCadence string
 
@@ -225,6 +225,84 @@ type Shield struct {
 	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
 }
 
+type ShieldAnswer struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	ShieldID    string  `json:"shieldId" db:"SHIELD_ID"`
+	AnswerID    string  `json:"answerId" db:"ANSWER_ID"`
+	AnswerText  *string `json:"answerText" db:"ANSWER_TEXT"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type ShieldEvidence struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	ShieldID    string  `json:"shieldId" db:"SHIELD_ID"`
+	Desc        *string `json:"desc" db:"DESC"`
+	URL         *string `json:"url" db:"URL"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+//******* Threat related models ********
+
+type ThreatState string
+
+const (
+	OpenThreatState      ThreatState = "open"
+	MitigatedThreatState ThreatState = "mitigated"
+	AcceptedThreatState  ThreatState = "accepted"
+	ClosedThreatState    ThreatState = "closed"
+)
+
+type Threat struct {
+	ID          string      `json:"id" db:"ID"`
+	AssetID     string      `json:"assetId" db:"ASSET_ID"`
+	AssetmentID string      `json:"assetmentId" db:"ASSETMENT_ID"`
+	Score       int         `json:"score" db:"SCORE"`
+	State       ThreatState `json:"state" db:"STATE"`
+	Reminders   int         `json:"reminders" db:"REMINDERS"`
+	Warnings    int         `json:"warnings" db:"WARNINGS"`
+	Escalations int         `json:"escalations" db:"ESCALATIONS"`
+	CreatedAt   string      `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string      `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string      `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type ThreatAnswer struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	ThreatID    string  `json:"threatId" db:"THREAT_ID"`
+	AnswerID    string  `json:"answerId" db:"ANSWER_ID"`
+	AnswerText  *string `json:"answerText" db:"ANSWER_TEXT"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type ThreatEvidence struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	ThreatID    string  `json:"threatId" db:"THREAT_ID"`
+	Desc        *string `json:"desc" db:"DESC"`
+	URL         *string `json:"url" db:"URL"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
 //******* Action Item related models ********
 
 type ActionItemState string
@@ -266,8 +344,11 @@ const (
 type Assessment struct {
 	ID          string          `json:"id" db:"ID"`
 	AssetID     string          `json:"assetId" db:"ASSET_ID"`
-	State       AssessmentState `json:"state" db:"STATE"`
 	TierID      *string         `json:"tierId" db:"TIER_ID"`
+	ThreatID    *string         `json:"threatId,omitempty" db:"THREAT_ID"`
+	LaunchID    *string         `json:"launchId,omitempty" db:"LAUNCH_ID"`
+	ShieldID    *string         `json:"shieldId,omitempty" db:"SHIELD_ID"`
+	State       AssessmentState `json:"state" db:"STATE"`
 	StartedAt   *time.Time      `json:"startedAt,omitempty" db:"STARTED_AT"`
 	CompletedAt *time.Time      `json:"completedAt,omitempty" db:"COMPLETED_AT"`
 	Result      *string         `json:"result,omitempty" db:"RESULT"`
