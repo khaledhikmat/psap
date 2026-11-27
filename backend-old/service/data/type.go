@@ -21,22 +21,58 @@ type IService interface {
 	// not be used afterwards.
 	Finalize()
 
+	NewEvent(ctx context.Context, evt interface{}) error
+
+	NewWorker(ctx context.Context, worker model.Worker) error
+	RetrieveWorkers(ctx context.Context) ([]model.Worker, error)
+	RetrieveWorkerByID(ctx context.Context, id string) (model.Worker, error)
+	UpdateWorker(ctx context.Context, worker model.Worker) error
+
+	NewAsset(ctx context.Context, asset model.Asset) error
+	RetrieveAssets(ctx context.Context) ([]model.Asset, error)
+	RetrieveAssetByID(ctx context.Context, id string) (model.Asset, error)
+	RetrieveAssetByName(ctx context.Context, name string) (model.Asset, error)
+	UpdateAsset(ctx context.Context, asset model.Asset) error
+
 	NewQuestionCategory(ctx context.Context, category model.QuestionCategory) error
 	RetrieveQuestionCategories(ctx context.Context) ([]model.QuestionCategory, error)
 	RetrieveQuestionCategoriesByType(ctx context.Context, categoryType model.QuestionCategoryType) ([]model.QuestionCategory, error)
 	RetrieveQuestionCategoryByID(ctx context.Context, id string) (model.QuestionCategory, error)
 	UpdateQuestionCategory(ctx context.Context, category model.QuestionCategory) error
 
-	RetrieveQuestionsByType(ctx context.Context, questionType model.QuestionType) ([]model.Question, error)
+	NewQuestion(ctx context.Context, question model.Question) error
+	RetrieveQuestions(ctx context.Context) ([]model.Question, error)
+	RetrieveQuestionsByCategoryID(ctx context.Context, categoryID string) ([]model.Question, error)
+	// RetrieveQuestionsByCategoryType returns the questions of every category of the given type.
+	RetrieveQuestionsByCategoryType(ctx context.Context, categoryType model.QuestionCategoryType) ([]model.Question, error)
+	RetrieveQuestionByID(ctx context.Context, id string) (model.Question, error)
+	UpdateQuestion(ctx context.Context, question model.Question) error
 
+	NewPredefinedAnswer(ctx context.Context, answer model.PredefinedAnswer) error
+	RetrievePredefinedAnswers(ctx context.Context) ([]model.PredefinedAnswer, error)
+	RetrievePredefinedAnswersByQuestionID(ctx context.Context, questionID string) ([]model.PredefinedAnswer, error)
+	// RetrievePredefinedAnswersByCategoryType returns the predefined answers of every question of
+	// every category of the given type, in question order, then answer order.
+	RetrievePredefinedAnswersByCategoryType(ctx context.Context, categoryType model.QuestionCategoryType) ([]model.PredefinedAnswer, error)
+	RetrievePredefinedAnswerByID(ctx context.Context, id string) (model.PredefinedAnswer, error)
+	UpdatePredefinedAnswer(ctx context.Context, answer model.PredefinedAnswer) error
+
+	// SaveLaunchAnswers and SaveShieldAnswers set the selected predefined answers of each
+	// submitted question in a single transaction, creating the user answer on first submission.
+	// Selections that change are recorded in the answer history. The submissions must already be
+	// valid (see the answers package); questions not submitted are left unchanged.
 	SaveLaunchAnswers(ctx context.Context, launchID string, submissions []model.AnswerSubmission, actor string) error
-	SaveThreatAnswers(ctx context.Context, threatID string, submissions []model.AnswerSubmission, actor string) error
 	SaveShieldAnswers(ctx context.Context, shieldID string, submissions []model.AnswerSubmission, actor string) error
-	SaveThreatEvidences(ctx context.Context, threatID string, submissions []model.EvidenceSubmission, actor string) error
+	// SaveShieldEvidences atomically upserts evidence for questions already answered on a shield.
 	SaveShieldEvidences(ctx context.Context, shieldID string, submissions []model.EvidenceSubmission, actor string) error
-	RetrieveAnswersByLaunchID(ctx context.Context, launchID string) ([]model.UserAnswerDetail, error)
-	RetrieveAnswersByShieldID(ctx context.Context, shieldID string) ([]model.UserAnswerDetail, error)
-	RetrieveAnswersByThreatID(ctx context.Context, threatID string) ([]model.UserAnswerDetail, error)
+	RetrieveUserAnswersByLaunchID(ctx context.Context, launchID string) ([]model.UserAnswerDetail, error)
+	RetrieveUserAnswersByShieldID(ctx context.Context, shieldID string) ([]model.UserAnswerDetail, error)
+	RetrieveUserAnswerByID(ctx context.Context, id string) (model.UserAnswerDetail, error)
+
+	// UserAnswerHistory is the audit trail of changes to user answers, newest first.
+	RetrieveUserAnswerHistoryByUserAnswerID(ctx context.Context, userAnswerID string) ([]model.UserAnswerHistory, error)
+	RetrieveUserAnswerHistoryByLaunchID(ctx context.Context, launchID string) ([]model.UserAnswerHistory, error)
+	RetrieveUserAnswerHistoryByShieldID(ctx context.Context, shieldID string) ([]model.UserAnswerHistory, error)
 
 	NewLaunch(ctx context.Context, launch model.Launch) error
 	// InitiateLaunch atomically replaces any active launch for the asset, inserts launch, and updates LastLaunchID.

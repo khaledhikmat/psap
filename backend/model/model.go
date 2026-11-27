@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"runtime/debug"
+	"time"
 )
 
 type CustomEvent struct {
@@ -31,6 +32,8 @@ func GenErrEvent(source, sourceType string, severity string, err error, attrs ma
 		RelationshipAttrs: attrs,
 	}
 }
+
+//******* Independent models ********
 
 type Worker struct {
 	ID           string `json:"id" db:"ID"`
@@ -65,6 +68,302 @@ type Tier struct {
 	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
 }
 
+type Baseline struct {
+	ID          string `json:"id" db:"ID"`
+	TierID      string `json:"tierId" db:"TIER_ID"`
+	Name        string `json:"name" db:"NAME"`
+	Title       string `json:"title" db:"TITLE"`
+	Description string `json:"description" db:"DESCRIPTION"`
+	CreatedAt   string `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type QuestionType string
+
+const (
+	LaunchQuestionType QuestionType = "launch"
+	ShieldQuestionType QuestionType = "shield"
+	ThreatQuestionType QuestionType = "threat"
+)
+
+type QuestionWeightType string
+
+const (
+	ContextWeightType     QuestionWeightType = "context"
+	FlagWeightType        QuestionWeightType = "flag"
+	CoefficientWeightType QuestionWeightType = "coefficient"
+)
+
+type Question struct {
+	ID                   string             `json:"id" db:"ID"`
+	Title                string             `json:"title" db:"TITLE"`
+	Text                 string             `json:"text" db:"TEXT"`
+	AllowMultipleAnswers bool               `json:"allowMultipleAnswers" db:"ALLOW_MULTIPLE_ANSWERS"`
+	EvidenceRequired     bool               `json:"evidenceRequired" db:"EVIDENCE_REQUIRED"`
+	DisplayOrder         int                `json:"displayOrder" db:"DISPLAY_ORDER"`
+	Type                 QuestionType       `json:"type" db:"TYPE"`
+	WeightType           QuestionWeightType `json:"weightType" db:"WEIGHT_TYPE"`
+	WeightValue          float64            `json:"weightValue" db:"WEIGHT_VALUE"`
+	CreatedAt            string             `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy            string             `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy            string             `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt            string             `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type AnswerType string
+
+const (
+	BoolAnswerType    AnswerType = "bool"
+	IntegerAnswerType AnswerType = "integer"
+	StringAnswerType  AnswerType = "string"
+)
+
+type Answer struct {
+	ID           string     `json:"id" db:"ID"`
+	QuestionID   string     `json:"questionId" db:"QUESTION_ID"`
+	Text         string     `json:"text" db:"TEXT"`
+	Type         AnswerType `json:"type" db:"TYPE"`
+	WeightValue  float64    `json:"weightValue" db:"WEIGHT_VALUE"`
+	DisplayOrder int        `json:"displayOrder" db:"DISPLAY_ORDER"`
+	CreatedAt    string     `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy    string     `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy    string     `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt    string     `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+// AnswerSubmission is an input: the predefined answers a user selected for one question.
+type AnswerSubmission struct {
+	QuestionID string   `json:"questionId"`
+	AnswerIDs  []string `json:"answerIds"`
+}
+
+// EvidenceSubmission is an input: the evidence a user recorded for one answered question.
+type EvidenceSubmission struct {
+	QuestionID  string `json:"questionId"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+}
+
+//******* Launch related models ********
+
+type LaunchState string
+
+const (
+	WaitingForAnswersLaunchState      LaunchState = "waiting-4-answers"
+	AnswersSubmittedLaunchState       LaunchState = "answers-submitted"
+	WaitingForTierApprovalLaunchState LaunchState = "waiting-4-tier-approval"
+	TierValidatedLaunchState          LaunchState = "tier-validated"
+	TimedOutLaunchState               LaunchState = "timedout"
+	CancelledLaunchState              LaunchState = "cancelled" // replaced by a newer launch of the same asset
+)
+
+type Launch struct {
+	ID          string      `json:"id" db:"ID"`
+	AssetID     string      `json:"assetId" db:"ASSET_ID"`
+	AssetmentID string      `json:"assetmentId" db:"ASSETMENT_ID"`
+	TierID      *string     `json:"tierId,omitempty" db:"TIER_ID"`
+	State       LaunchState `json:"state" db:"STATE"`
+	Reminders   int         `json:"reminders" db:"REMINDERS"`
+	Warnings    int         `json:"warnings" db:"WARNINGS"`
+	Escalations int         `json:"escalations" db:"ESCALATIONS"`
+	CreatedAt   string      `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string      `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string      `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type LaunchAnswer struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	LaunchID    string  `json:"launchId" db:"LAUNCH_ID"`
+	AnswerID    string  `json:"answerId" db:"ANSWER_ID"`
+	AnswerText  *string `json:"answerText" db:"ANSWER_TEXT"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type LaunchEvidence struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	LaunchID    string  `json:"launchId" db:"LAUNCH_ID"`
+	Desc        *string `json:"desc" db:"DESC"`
+	URL         *string `json:"url" db:"URL"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+//******* Shield related models ********
+
+type ShieldState string
+
+const (
+	WaitingForAnswersShieldState   ShieldState = "waiting-4-answers"
+	AnswersSubmittedShieldState    ShieldState = "answers-submitted"
+	WaitingForEvidencesShieldState ShieldState = "waiting-4-evidences"
+	EvidencesSubmittedShieldState  ShieldState = "evidences-submitted"
+	CompletedShieldState           ShieldState = "completed"
+	TimedOutShieldState            ShieldState = "timedout"
+	CancelledShieldState           ShieldState = "cancelled" // replaced by a newer shield of the same asset
+)
+
+type Shield struct {
+	ID          string      `json:"id" db:"ID"`
+	AssetID     string      `json:"assetId" db:"ASSET_ID"`
+	AssetmentID string      `json:"assetmentId" db:"ASSETMENT_ID"`
+	Score       int         `json:"score" db:"SCORE"`
+	State       ShieldState `json:"state" db:"STATE"`
+	Reminders   int         `json:"reminders" db:"REMINDERS"`
+	Warnings    int         `json:"warnings" db:"WARNINGS"`
+	Escalations int         `json:"escalations" db:"ESCALATIONS"`
+	CreatedAt   string      `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string      `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string      `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type ShieldAnswer struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	ShieldID    string  `json:"shieldId" db:"SHIELD_ID"`
+	AnswerID    string  `json:"answerId" db:"ANSWER_ID"`
+	AnswerText  *string `json:"answerText" db:"ANSWER_TEXT"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type ShieldEvidence struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	ShieldID    string  `json:"shieldId" db:"SHIELD_ID"`
+	Desc        *string `json:"desc" db:"DESC"`
+	URL         *string `json:"url" db:"URL"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+//******* Threat related models ********
+
+type ThreatState string
+
+const (
+	OpenThreatState      ThreatState = "open"
+	MitigatedThreatState ThreatState = "mitigated"
+	AcceptedThreatState  ThreatState = "accepted"
+	ClosedThreatState    ThreatState = "closed"
+)
+
+type Threat struct {
+	ID          string      `json:"id" db:"ID"`
+	AssetID     string      `json:"assetId" db:"ASSET_ID"`
+	AssetmentID string      `json:"assetmentId" db:"ASSETMENT_ID"`
+	Score       int         `json:"score" db:"SCORE"`
+	State       ThreatState `json:"state" db:"STATE"`
+	Reminders   int         `json:"reminders" db:"REMINDERS"`
+	Warnings    int         `json:"warnings" db:"WARNINGS"`
+	Escalations int         `json:"escalations" db:"ESCALATIONS"`
+	CreatedAt   string      `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string      `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string      `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type ThreatAnswer struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	ThreatID    string  `json:"threatId" db:"THREAT_ID"`
+	AnswerID    string  `json:"answerId" db:"ANSWER_ID"`
+	AnswerText  *string `json:"answerText" db:"ANSWER_TEXT"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type ThreatEvidence struct {
+	ID          string  `json:"id" db:"ID"`
+	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
+	ThreatID    string  `json:"threatId" db:"THREAT_ID"`
+	Desc        *string `json:"desc" db:"DESC"`
+	URL         *string `json:"url" db:"URL"`
+	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
+	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+//******* Action Item related models ********
+
+type ActionItemState string
+
+const (
+	GapActionItemState ActionItemState = "gap"
+	MetActionItemState ActionItemState = "met"
+)
+
+type ActionItem struct {
+	ID           string          `json:"id" db:"ID"`
+	BaselineID   string          `json:"baselineId" db:"BASELINE_ID"`
+	AssessmentID string          `json:"assessmentId" db:"ASSESSMENT_ID"`
+	State        ActionItemState `json:"state" db:"STATE"`
+	CreatedAt    string          `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy    string          `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy    string          `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt    string          `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+type ActionItemTransaction struct {
+	ID           string `json:"id" db:"ID"`
+	ActionItemID string `json:"actionItemId" db:"ACTION_ITEM_ID"`
+	Text         string `json:"text" db:"TEXT"`
+	CreatedAt    string `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy    string `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy    string `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt    string `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+//******* Assessment related models ********
+
+type AssessmentState string
+
+const (
+	PendingLaunchAssessmentState AssessmentState = "pending-launch"
+)
+
+type Assessment struct {
+	ID          string          `json:"id" db:"ID"`
+	AssetID     string          `json:"assetId" db:"ASSET_ID"`
+	TierID      *string         `json:"tierId" db:"TIER_ID"`
+	ThreatID    *string         `json:"threatId,omitempty" db:"THREAT_ID"`
+	LaunchID    *string         `json:"launchId,omitempty" db:"LAUNCH_ID"`
+	ShieldID    *string         `json:"shieldId,omitempty" db:"SHIELD_ID"`
+	State       AssessmentState `json:"state" db:"STATE"`
+	StartedAt   *time.Time      `json:"startedAt,omitempty" db:"STARTED_AT"`
+	CompletedAt *time.Time      `json:"completedAt,omitempty" db:"COMPLETED_AT"`
+	Result      *string         `json:"result,omitempty" db:"RESULT"`
+	CreatedAt   string          `json:"createdAt" db:"CREATED_AT"`
+	CreatedBy   string          `json:"createdBy" db:"CREATED_BY"`
+	UpdatedBy   string          `json:"updatedBy" db:"UPDATED_BY"`
+	UpdatedAt   string          `json:"updatedAt" db:"UPDATED_AT"`
+}
+
+//******* Asset related models ********
+
 type AssetState string
 
 const (
@@ -90,210 +389,11 @@ type Asset struct {
 	Space             string     `json:"space" db:"SPACE"`
 	Priority          string     `json:"priority" db:"PRIORITY"`
 	State             AssetState `json:"state" db:"STATE"`
-	TierID            *string    `json:"tierId,omitempty" db:"TIER_ID"`
-	LastLaunchID      *string    `json:"lastLaunchId,omitempty" db:"LAST_LAUNCH_ID"`
-	LastShieldID      *string    `json:"lastShieldId,omitempty" db:"LAST_SHIELD_ID"`
-	LastBaselineID    *string    `json:"lastBaselineId,omitempty" db:"LAST_BASELINE_ID"`
+	LastAssessmentID  *string    `json:"lastAssessmentId,omitempty" db:"LAST_ASSESSMENT_ID"`
 	BusinessOwnerID   *string    `json:"businessOwner,omitempty" db:"BUSINESS_OWNER"`
 	BusinessManagerID *string    `json:"businessManager,omitempty" db:"BUSINESS_MANAGER"`
 	CreatedBy         string     `json:"createdBy" db:"CREATED_BY"`
 	CreatedAt         string     `json:"createdAt" db:"CREATED_AT"`
 	UpdatedBy         string     `json:"updatedBy" db:"UPDATED_BY"`
 	UpdatedAt         string     `json:"updatedAt" db:"UPDATED_AT"`
-}
-
-type QuestionCategoryType string
-
-const (
-	LaunchQuestionCategory QuestionCategoryType = "launch"
-	ShieldQuestionCategory QuestionCategoryType = "shield"
-)
-
-type QuestionCategory struct {
-	ID        string               `json:"id" db:"ID"`
-	Title     string               `json:"title" db:"TITLE"`
-	Text      string               `json:"text" db:"TEXT"`
-	Type      QuestionCategoryType `json:"type" db:"TYPE"`
-	CreatedAt string               `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy string               `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy string               `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt string               `json:"updatedAt" db:"UPDATED_AT"`
-}
-
-type Question struct {
-	ID                   string `json:"id" db:"ID"`
-	CategoryID           string `json:"categoryId" db:"CATEGORY_ID"`
-	Text                 string `json:"text" db:"TEXT"`
-	AllowMultipleAnswers bool   `json:"allowMultipleAnswers" db:"ALLOW_MULTIPLE_ANSWERS"`
-	EvidenceRequired     bool   `json:"evidenceRequired" db:"EVIDENCE_REQUIRED"`
-	DisplayOrder         int    `json:"displayOrder" db:"DISPLAY_ORDER"`
-	CreatedAt            string `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy            string `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy            string `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt            string `json:"updatedAt" db:"UPDATED_AT"`
-}
-
-// PredefinedAnswer represents the possible answer choices for a question
-type PredefinedAnswer struct {
-	ID           string `json:"id" db:"ID"`
-	QuestionID   string `json:"questionId" db:"QUESTION_ID"`
-	Text         string `json:"text" db:"TEXT"`
-	Points       int    `json:"points" db:"POINTS"`
-	DisplayOrder int    `json:"displayOrder" db:"DISPLAY_ORDER"`
-	CreatedAt    string `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy    string `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy    string `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt    string `json:"updatedAt" db:"UPDATED_AT"`
-}
-
-// UserAnswer tracks when a question is answered in a launch or shield
-type UserAnswer struct {
-	ID          string  `json:"id" db:"ID"`
-	QuestionID  string  `json:"questionId" db:"QUESTION_ID"`
-	LaunchID    *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
-	ShieldID    *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
-	SubmittedBy string  `json:"submittedBy" db:"SUBMITTED_BY"`
-	CreatedAt   string  `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy   string  `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy   string  `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt   string  `json:"updatedAt" db:"UPDATED_AT"`
-}
-
-// UserAnswerSelection tracks which predefined answer(s) were selected
-// Supports multiple selections for "select all that apply" questions
-type UserAnswerSelection struct {
-	ID                 string `json:"id" db:"ID"`
-	UserAnswerID       string `json:"userAnswerId" db:"USER_ANSWER_ID"`
-	PredefinedAnswerID string `json:"predefinedAnswerId" db:"PREDEFINED_ANSWER_ID"`
-	CreatedAt          string `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy          string `json:"createdBy" db:"CREATED_BY"`
-}
-
-// UserAnswerHistory tracks changes to user answers for audit trail
-type UserAnswerHistory struct {
-	ID                         string  `json:"id" db:"ID"`
-	UserAnswerID               string  `json:"userAnswerId" db:"USER_ANSWER_ID"`
-	QuestionID                 string  `json:"questionId" db:"QUESTION_ID"`
-	LaunchID                   *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
-	ShieldID                   *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
-	PreviousPredefinedAnswerID *string `json:"previousPredefinedAnswerId,omitempty" db:"PREVIOUS_PREDEFINED_ANSWER_ID"`
-	NewPredefinedAnswerID      string  `json:"newPredefinedAnswerId" db:"NEW_PREDEFINED_ANSWER_ID"`
-	ChangedBy                  string  `json:"changedBy" db:"CHANGED_BY"`
-	ChangedAt                  string  `json:"changedAt" db:"CHANGED_AT"`
-}
-
-// UserAnswerDetail is a user answer together with the predefined answers selected for it.
-type UserAnswerDetail struct {
-	UserAnswer
-	Selections []UserAnswerSelection `json:"selections"`
-}
-
-// AnswerSubmission is an input: the predefined answers a user selected for one question.
-type AnswerSubmission struct {
-	QuestionID          string   `json:"questionId"`
-	PredefinedAnswerIDs []string `json:"predefinedAnswerIds"`
-}
-
-// EvidenceSubmission is an input: the evidence a user recorded for one answered question.
-type EvidenceSubmission struct {
-	QuestionID  string `json:"questionId"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-}
-
-type LaunchState string
-
-const (
-	WaitingForAnswersLaunchState      LaunchState = "waiting-4-answers"
-	AnswersSubmittedLaunchState       LaunchState = "answers-submitted"
-	WaitingForTierApprovalLaunchState LaunchState = "waiting-4-tier-approval"
-	TierValidatedLaunchState          LaunchState = "tier-validated"
-	TimedOutLaunchState               LaunchState = "timedout"
-	CancelledLaunchState              LaunchState = "cancelled" // replaced by a newer launch of the same asset
-)
-
-type Launch struct {
-	ID          string      `json:"id" db:"ID"`
-	AssetID     string      `json:"assetId" db:"ASSET_ID"`
-	TierID      *string     `json:"tierId,omitempty" db:"TIER_ID"`
-	State       LaunchState `json:"state" db:"STATE"`
-	Reminders   int         `json:"reminders" db:"REMINDERS"`
-	Warnings    int         `json:"warnings" db:"WARNINGS"`
-	Escalations int         `json:"escalations" db:"ESCALATIONS"`
-	CreatedAt   string      `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy   string      `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy   string      `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
-}
-
-type Evidence struct {
-	ID           string  `json:"id" db:"ID"`
-	QuestionID   string  `json:"questionId" db:"QUESTION_ID"`
-	UserAnswerID string  `json:"userAnswerId" db:"USER_ANSWER_ID"`
-	LaunchID     *string `json:"launchId,omitempty" db:"LAUNCH_ID"`
-	ShieldID     *string `json:"shieldId,omitempty" db:"SHIELD_ID"`
-	Description  string  `json:"description" db:"DESCRIPTION"`
-	URL          string  `json:"url" db:"URL"`
-	CreatedAt    string  `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy    string  `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy    string  `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt    string  `json:"updatedAt" db:"UPDATED_AT"`
-}
-
-type ShieldState string
-
-const (
-	WaitingForAnswersShieldState   ShieldState = "waiting-4-answers"
-	AnswersSubmittedShieldState    ShieldState = "answers-submitted"
-	WaitingForEvidencesShieldState ShieldState = "waiting-4-evidences"
-	EvidencesSubmittedShieldState  ShieldState = "evidences-submitted"
-	CompletedShieldState           ShieldState = "completed"
-	TimedOutShieldState            ShieldState = "timedout"
-	CancelledShieldState           ShieldState = "cancelled" // replaced by a newer shield of the same asset
-)
-
-type Shield struct {
-	ID          string      `json:"id" db:"ID"`
-	AssetID     string      `json:"assetId" db:"ASSET_ID"`
-	Score       int         `json:"score" db:"SCORE"`
-	State       ShieldState `json:"state" db:"STATE"`
-	Reminders   int         `json:"reminders" db:"REMINDERS"`
-	Warnings    int         `json:"warnings" db:"WARNINGS"`
-	Escalations int         `json:"escalations" db:"ESCALATIONS"`
-	CreatedAt   string      `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy   string      `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy   string      `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt   string      `json:"updatedAt" db:"UPDATED_AT"`
-}
-
-type BaselineState string
-
-const (
-	PendingLaunchBaselineState BaselineState = "pending-launch"
-)
-
-type Baseline struct {
-	ID        string        `json:"id" db:"ID"`
-	AssetID   string        `json:"assetId" db:"ASSET_ID"`
-	State     BaselineState `json:"state" db:"STATE"`
-	CreatedAt string        `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy string        `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy string        `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt string        `json:"updatedAt" db:"UPDATED_AT"`
-}
-
-type ActionItemState string
-
-const (
-	PendingLaunchActionItemState ActionItemState = "pending-launch"
-)
-
-type ActionItem struct {
-	ID         string          `json:"id" db:"ID"`
-	BaselineID string          `json:"baselineId" db:"BASELINE_ID"`
-	State      ActionItemState `json:"state" db:"STATE"`
-	CreatedAt  string          `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy  string          `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy  string          `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt  string          `json:"updatedAt" db:"UPDATED_AT"`
 }

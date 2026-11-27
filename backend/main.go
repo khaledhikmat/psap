@@ -25,11 +25,10 @@ import (
 
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/khaledhikmat/psap/mode"
+	"github.com/khaledhikmat/psap/server"
 	"github.com/khaledhikmat/psap/service"
 	"github.com/khaledhikmat/psap/service/config"
 	"github.com/khaledhikmat/psap/service/data"
-	"github.com/khaledhikmat/psap/service/flow"
 	"github.com/khaledhikmat/psap/service/lgr"
 	"github.com/khaledhikmat/psap/utils"
 	"github.com/shirou/gopsutil/cpu"
@@ -60,15 +59,6 @@ var (
 	processCount            metric.Int64Gauge
 	goRoutineCount          metric.Int64Gauge
 )
-
-// Available mode processors
-var modeProcessors = map[string]mode.Processor{
-	"httpserver":      mode.HTTPServer,
-	"flowworker":      mode.Worker,
-	"multiflowworker": mode.MultiWorker,
-	"cli":             mode.CLI,
-	"minionmanager":   mode.MinionManager,
-}
 
 var startTime = time.Now()
 
@@ -196,14 +186,6 @@ func ensureMetrics() {
 }
 
 func main() {
-	// os.Exit skips deferred calls, so all the work (and every defer) lives in run.
-	os.Exit(run())
-}
-
-// run starts the mode processor selected by MODE_PROC and returns the process exit code:
-// 0 when the mode processor finishes cleanly (or is stopped by SIGINT/SIGTERM), 1 when
-// startup fails or the mode processor returns an error.
-func run() int {
 	ensureMetrics()
 
 	if !metricsInitialized {
@@ -237,7 +219,7 @@ func run() int {
 			"setting up OpenTelemetry",
 			slog.Any("error", xerrors.New(err.Error())),
 		)
-		return 1
+		return
 	}
 	defer func() {
 		err := shutdown(rootCtx)
@@ -251,17 +233,6 @@ func run() int {
 
 	// Create a prfiler reporter
 	reportProfiling(canxCtx)
-
-	modeType := "manager"
-	if os.Getenv("MODE_PROC") != "" {
-		modeType = os.Getenv("MODE_PROC")
-	}
-
-	modeProc, ok := modeProcessors[modeType]
-	if !ok {
-		lgr.Logger.Error("invalid mode", slog.String("mode", modeType))
-		return 1
-	}
 
 	// Create the services needed for the mode processor
 	// They can be overridden by the mode processor with different implementations
@@ -285,28 +256,10 @@ func run() int {
 	}
 	defer dataSvc.Finalize()
 
-	// Only modes that still call the flow service connect to Temporal. HTTP API requests
-	// persist assessment state directly through the data service.
-	var flowSvc flow.IService
-	if modeType == "cli" {
-		flowSvc = flow.NewTemporal(cfgSvc, dataSvc)
-		if flowSvc == nil {
-			lgr.Logger.Error(
-				"unable to instantiate flow service",
-				slog.Any("error", xerrors.New("unable to connect to Temporal")),
-			)
-			return 1
-		}
-		// Deferred calls run in reverse order, so the flow service (which uses the data service)
-		// is finalized first.
-		defer flowSvc.Finalize()
-	}
-
 	svcs := service.ServicesFactory{
 		CanxCtx: canxCtx,
 		CfgSvc:  cfgSvc,
 		DataSvc: dataSvc,
-		FlowSvc: flowSvc,
 	}
 
 	// Run Timestamp as POD
@@ -328,9 +281,9 @@ func run() int {
 		}
 	}
 
-	// Start the mode processor
+	// Start the http server
 	go func() {
-		modeProcResult <- modeProc(canxCtx, ts, svcs)
+		modeProcResult <- server.HTTPServer(canxCtx, ts, svcs)
 	}()
 
 	// Wait for cancellation, mode proc, stats or error

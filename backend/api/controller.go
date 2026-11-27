@@ -91,53 +91,6 @@ func NewController(dataSvc data.IService, eventStream chan<- interface{}) *Contr
 func (c *Controller) Routes(rootRouter *gin.RouterGroup) {
 	rootRouter.GET("/ping", c.ping)
 
-	// Tiers
-	tiersRouter := rootRouter.Group("/tiers")
-	{
-		tiersRouter.GET("", c.listTiers)
-		tiersRouter.GET("/:id", c.showTier)
-	}
-
-	// Question Categories
-	categoriesRouter := rootRouter.Group("/question-categories")
-	{
-		categoriesRouter.GET("", c.listQuestionCategories)
-		categoriesRouter.GET("/:id", c.showQuestionCategory)
-		categoriesRouter.GET("/:id/questions", c.listCategoryQuestions)
-	}
-
-	// Questions
-	questionsRouter := rootRouter.Group("/questions")
-	{
-		questionsRouter.GET("", c.listQuestions)
-		questionsRouter.GET("/:id", c.showQuestion)
-		questionsRouter.GET("/:id/answers", c.listQuestionPredefinedAnswers)
-	}
-
-	// Predefined Answers
-	predefinedAnswersRouter := rootRouter.Group("/predefined-answers")
-	{
-		predefinedAnswersRouter.GET("", c.listPredefinedAnswers)
-	}
-
-	// Workers
-	workersRouter := rootRouter.Group("/workers")
-	{
-		workersRouter.GET("", c.listWorkers)
-		workersRouter.GET("/:id", c.showWorker)
-	}
-
-	// Assets
-	assetsRouter := rootRouter.Group("/assets")
-	{
-		assetsRouter.GET("", c.listAssets)
-		assetsRouter.POST("", c.createAsset)
-		assetsRouter.GET("/:id", c.showAsset)
-		assetsRouter.GET("/:id/launches", c.listAssetLaunches)
-		assetsRouter.GET("/:id/shields", c.listAssetShields)
-		assetsRouter.GET("/:id/baselines", c.listAssetBaselines)
-	}
-
 	// Launches
 	launchesRouter := rootRouter.Group("/launches")
 	{
@@ -165,10 +118,5 @@ func (c *Controller) Routes(rootRouter *gin.RouterGroup) {
 		shieldsRouter.POST("/:id/finalize-answers", c.finalizeShieldAnswers)
 		shieldsRouter.POST("/:id/submit-evidences", c.submitShieldEvidences)
 		shieldsRouter.POST("/:id/finalize-evidences", c.finalizeShieldEvidences)
-	}
-
-	errorsRouter := rootRouter.Group("/errors")
-	{
-		errorsRouter.GET("", c.listErrors)
 	}
 }
