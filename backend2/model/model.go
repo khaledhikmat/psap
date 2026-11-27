@@ -96,23 +96,14 @@ const (
 	CoefficientWeightType QuestionWeightType = "coefficient"
 )
 
-type QuestionCategory struct {
-	ID        string `json:"id" db:"ID"`
-	Title     string `json:"title" db:"TITLE"`
-	Text      string `json:"text" db:"TEXT"`
-	CreatedAt string `json:"createdAt" db:"CREATED_AT"`
-	CreatedBy string `json:"createdBy" db:"CREATED_BY"`
-	UpdatedBy string `json:"updatedBy" db:"UPDATED_BY"`
-	UpdatedAt string `json:"updatedAt" db:"UPDATED_AT"`
-}
-
 type Question struct {
 	ID                   string             `json:"id" db:"ID"`
-	CategoryID           string             `json:"categoryId" db:"CATEGORY_ID"`
+	Title                string             `json:"title" db:"TITLE"`
 	Text                 string             `json:"text" db:"TEXT"`
 	AllowMultipleAnswers bool               `json:"allowMultipleAnswers" db:"ALLOW_MULTIPLE_ANSWERS"`
 	EvidenceRequired     bool               `json:"evidenceRequired" db:"EVIDENCE_REQUIRED"`
 	DisplayOrder         int                `json:"displayOrder" db:"DISPLAY_ORDER"`
+	Type                 QuestionType       `json:"type" db:"TYPE"`
 	WeightType           QuestionWeightType `json:"weightType" db:"WEIGHT_TYPE"`
 	WeightValue          float64            `json:"weightValue" db:"WEIGHT_VALUE"`
 	CreatedAt            string             `json:"createdAt" db:"CREATED_AT"`
